@@ -5498,8 +5498,8 @@
         "tags": [
           "Reports"
         ],
-        "summary": "Export a list of applicants into the Group Schedule Bio Applicants Excel template",
-        "description": "Given a list of Applicant names, fills them into the exact layout of docs/Group_Schedule_Bio_Applicants_Excel_Template.xls -- same sheet name (Bio_Applicant_Details), same 13 columns/order/widths/header colour (#9999FF), copied directly from the real template via xlrd inspection so the result drops into whatever downstream labor/visa authority consumes that template with no manual reformatting. Not one of this app's own branded reports (no title row/autofilter/frozen header) -- shifting anything from row 0 = headers would break the receiving end's parser. Throws a clear ValidationError listing any not-found applicant names rather than silently dropping them (zero-data-loss convention).",
+        "summary": "Export a list of applicants into the Group Schedule Bio Applicants (Taeshir) .xls template",
+        "description": "Given a list of Applicant names, fills them into the exact layout of docs/Group_Schedule_Bio_Applicants_Excel_Template.xls and returns a real legacy Excel .xls file (BIFF8), same format as the template -- NOT .xlsx, despite the endpoint name (kept for backward compatibility). Same sheet name (Bio_Applicant_Details), same 13 columns/order/widths/header colour (#9999FF)/date format (d/mmm/yyyy), plus the template's hidden 'hiddenSheet' nationality list, so the result drops into the downstream authority's upload with no manual reformatting. Not one of this app's own branded reports (no title row/autofilter/frozen header) -- shifting anything from row 0 = headers would break the receiving end's parser. The template's in-cell dropdowns/validation (Gender, Nationality, name checks) are not reproduced; the values written already come from validated Applicant fields. Column 'E.No' is the applicant's Injaz Application ID, taken from the Taeshir step of their latest non-Cancelled placement (the Active Injaz attempt, else the last one); it is blank if they have no Taeshir step or no ID yet. Column 'Email ID*' is the agency's own email from Agency Tracking Settings > Agency Email (same value printed on the Injaz PDF), not the applicant's. Throws a clear ValidationError listing any not-found applicant names rather than silently dropping them (zero-data-loss convention).",
         "x-roles": [
           "Registrar",
           "Manager",
@@ -5523,7 +5523,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Binary .xlsx file stream (Group_Schedule_Bio_Applicants_{date}.xlsx)",
+            "description": "Binary .xls file stream (Group_Schedule_Bio_Applicants_{date}.xls, Content-Type application/vnd.ms-excel)",
             "schema": {
               "type": "object",
               "properties": {
@@ -5544,6 +5544,9 @@
           {
             "sessionCookie": []
           }
+        ],
+        "produces": [
+          "application/vnd.ms-excel"
         ]
       }
     },

@@ -19,6 +19,12 @@ INJAZ_TEMPLATE = "templates/injaz_document.html"
 # origin_agency (ANWAR SULTAN FOREIGN EMPLOYMENT AGENT).
 ORIGIN_AGENCY_FULL = "ANWAR SULTAN FOREIGN EMPLOYMENT AGENT"
 ORIGIN_AGENCY_EMAIL = "rawnasultan03@gmail.com"
+
+
+def get_agency_email():
+	"""Agency contact email from Agency Tracking Settings, falling back to ORIGIN_AGENCY_EMAIL when
+	the setting is empty (e.g. a site migrated before the field existed)."""
+	return frappe.db.get_single_value("Agency Tracking Settings", "agency_email") or ORIGIN_AGENCY_EMAIL
 # Applicant.religion -> the wording the Saudi consular form uses.
 _RELIGION_MAP = {"Muslim": "Islam"}
 
@@ -848,7 +854,7 @@ def _injaz_context(step, placement, applicant):
 		"photo_src": embed_image_datauri(applicant.photograph, max_dimension=450),
 		"emblem_src": asset_datauri("templates", "injaz_assets", "mofa_emblem.png"),
 		"agency_full": ORIGIN_AGENCY_FULL,
-		"agency_email": ORIGIN_AGENCY_EMAIL,
+		"agency_email": get_agency_email(),
 		# ── applicant ──
 		"full_name": _upper(applicant.full_name),
 		"date_of_birth": _fmt_date(applicant.date_of_birth),

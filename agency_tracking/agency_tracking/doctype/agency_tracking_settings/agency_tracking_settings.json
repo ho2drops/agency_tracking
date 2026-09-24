@@ -10,6 +10,7 @@
   "agency_address",
   "col_break_letterhead",
   "agency_phone",
+  "agency_email",
   "logo",
   "stamp_image",
   "bank_sec",
@@ -50,6 +51,14 @@
    "fieldname": "agency_phone",
    "fieldtype": "Data",
    "label": "Agency Phone"
+  },
+  {
+   "default": "rawnasultan03@gmail.com",
+   "description": "Agency contact email. Printed on the Injaz application PDF and filled into the Email column of the Taeshir (Group Schedule Bio) export.",
+   "fieldname": "agency_email",
+   "fieldtype": "Data",
+   "label": "Agency Email",
+   "options": "Email"
   },
   {
    "fieldname": "logo",
@@ -117,7 +126,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-09-07 00:00:00.000000",
+ "modified": "2026-09-23 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Agency Tracking",
  "name": "Agency Tracking Settings",

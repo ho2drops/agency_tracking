@@ -770,28 +770,85 @@ def export_transactions_xlsx(status=None, transaction_type=None, placement=None,
 	frappe.response["type"] = "download"
 
 
-# Column layout, sheet name, widths, and header fill colour (#9999FF) copied directly from
-# docs/Group_Schedule_Bio_Applicants_Excel_Template.xls (inspected via xlrd) -- this is a
-# fixed external bulk-upload format some downstream labor/visa authority consumes, not one of
-# this app's own branded reports, so it deliberately does NOT use _xlsx_formats/
-# _write_report_header above: no title row, no autofilter, no frozen header -- anything that
-# shifts row/column positions away from row 0 = headers would break whatever parses this on
-# the receiving end.
+# Layout copied directly from docs/Group_Schedule_Bio_Applicants_Excel_Template.xls (inspected
+# via xlrd) -- this is a fixed external bulk-upload format some downstream labor/visa authority
+# consumes, not one of this app's own branded reports, so it deliberately does NOT use
+# _xlsx_formats/_write_report_header above: no title row, no autofilter, no frozen header --
+# anything that shifts row/column positions away from row 0 = headers would break whatever parses
+# this on the receiving end. Written as a real BIFF8 .xls (xlwt), same as the template, not .xlsx.
+# Widths are in the .xls native 1/256-character units, as stored in the template.
 _GROUP_SCHEDULE_BIO_HEADERS = [
 	"E.No", "First Name*", "Second Name", "Last Name*", "Passport Number*",
 	"Date of Birth* ", "Nationality*", "Date of Issue*", "Gender*",
 	"Place of Issue*", "Expiry Date*", "Applicant Mobile No.*", "Email ID*",
 ]
-_GROUP_SCHEDULE_BIO_WIDTHS = [12.14, 11.0, 20.29, 13.86, 16.43, 14.86, 12.71, 14.14, 14.71, 14.0, 12.14, 25.29, 21.71]
+_GROUP_SCHEDULE_BIO_WIDTHS = [3108, 2816, 5193, 3547, 4205, 3803, 3254, 3620, 3766, 3584, 3108, 6473, 5558]
+_GROUP_SCHEDULE_BIO_DATE_COLS = {5, 7, 10}
+_GROUP_SCHEDULE_BIO_DATE_FORMAT = "[$-409]d/mmm/yyyy;@"
+
+
+def _injaz_application_ids(applicants):
+	"""{applicant: Injaz Application ID} for the template's "E.No" column. Taken from the Taeshir
+	step of each applicant's latest non-Cancelled Placement, picking the attempt the same way
+	clearance_api._get_active_injaz_attempt does (last Active row, else last row). Applicants with
+	no Taeshir step / no ID yet are simply absent -- E.No is not a starred column in the template."""
+	placements = frappe.get_all(
+		"Placement",
+		filters={"applicant": ["in", applicants], "status": ["!=", "Cancelled"]},
+		fields=["name", "applicant"],
+		order_by="creation asc",
+	)
+	# Later placements overwrite earlier ones -> latest placement per applicant wins.
+	placement_applicant = {p.applicant: p.name for p in placements}
+	if not placement_applicant:
+		return {}
+	steps = frappe.get_all(
+		"Clearance Step",
+		filters={
+			"placement": ["in", list(placement_applicant.values())],
+			"step_type": "Taeshir",
+			"status": ["!=", "Cancelled"],
+		},
+		fields=["name", "placement"],
+		order_by="creation asc",
+	)
+	step_by_placement = {st.placement: st.name for st in steps}
+	if not step_by_placement:
+		return {}
+	attempts = frappe.get_all(
+		"Injaz Attempt",
+		filters={
+			"parent": ["in", list(step_by_placement.values())],
+			"parenttype": "Clearance Step",
+		},
+		fields=["parent", "outcome", "injaz_application_id"],
+		order_by="idx asc",
+	)
+	by_step = {}
+	for att in attempts:
+		by_step.setdefault(att.parent, []).append(att)
+
+	result = {}
+	for applicant, placement in placement_applicant.items():
+		rows = by_step.get(step_by_placement.get(placement)) or []
+		active = [r for r in rows if r.outcome == "Active"]
+		chosen = active[-1] if active else (rows[-1] if rows else None)
+		if chosen and chosen.injaz_application_id:
+			result[applicant] = chosen.injaz_application_id
+	return result
 
 
 @frappe.whitelist()
 def export_group_schedule_bio_xlsx(applicants=None):
 	"""Given a list of Applicant names, fills them into the exact layout of
 	docs/Group_Schedule_Bio_Applicants_Excel_Template.xls (sheet "Bio_Applicant_Details", same
-	13 columns/order/widths/header colour) so the result can go straight to whatever authority
-	consumes that template, no manual reformatting. `applicants` accepts a list, a JSON-encoded
-	list, or a single Applicant name.
+	13 columns/order/widths/header colour/date format, plus the hidden nationality-list sheet)
+	and returns it as a real .xls file, so the result can go straight to whatever authority
+	consumes that template, no manual reformatting. "E.No" is each applicant's Injaz Application
+	ID (see _injaz_application_ids), blank if they don't have one yet; "Email ID" is the agency's
+	own email (Agency Tracking Settings > Agency Email), not the applicant's. `applicants` accepts a list, a JSON-encoded
+	list, or a single Applicant name. (The endpoint keeps its original `_xlsx` name so existing
+	callers don't break.)
 	"""
 	if not (INTERNAL_STAFF_ROLES & set(frappe.get_roles())):
 		frappe.throw("Not permitted.", frappe.PermissionError)
@@ -808,7 +865,7 @@ def export_group_schedule_bio_xlsx(applicants=None):
 		fields=[
 			"name", "first_name", "middle_name", "last_name", "passport_number",
 			"date_of_birth", "nationality", "passport_issue_date", "gender",
-			"passport_issue_place", "passport_expiry_date", "phone", "email",
+			"passport_issue_place", "passport_expiry_date", "phone",
 		],
 	)
 	row_map = {r.name: r for r in rows}
@@ -821,50 +878,79 @@ def export_group_schedule_bio_xlsx(applicants=None):
 		)
 	# Preserve the caller's requested order, not frappe.get_all's DB order.
 	ordered = [row_map[a] for a in applicants]
+	e_numbers = _injaz_application_ids(applicants)
+	from agency_tracking.clearance_api import get_agency_email
+
+	agency_email = get_agency_email()
 
 	import io
-	import xlsxwriter
+	import xlwt
 
-	output = io.BytesIO()
-	workbook = xlsxwriter.Workbook(output, {"in_memory": True})
-	worksheet = workbook.add_worksheet("Bio_Applicant_Details")
+	from agency_tracking.group_schedule_bio_countries import GROUP_SCHEDULE_BIO_COUNTRIES
 
-	header_fmt = workbook.add_format({
-		"bg_color": "#9999FF", "border": 1, "valign": "vcenter", "text_wrap": True,
-	})
-	cell_fmt = workbook.add_format({"border": 1, "valign": "vcenter"})
-	date_fmt = workbook.add_format({"border": 1, "valign": "vcenter", "num_format": "dd-mmm-yyyy"})
+	def _style(font_name="Arial", date=False, header=False, wrap=False):
+		style = xlwt.XFStyle()
+		style.font = xlwt.Font()
+		style.font.name = font_name
+		style.font.height = 200  # 10pt, as in the template
+		style.alignment = xlwt.Alignment()
+		style.alignment.vert = xlwt.Alignment.VERT_CENTER
+		style.alignment.wrap = int(wrap)
+		if header:
+			style.pattern = xlwt.Pattern()
+			style.pattern.pattern = xlwt.Pattern.SOLID_PATTERN
+			style.pattern.pattern_fore_colour = 24  # #9999FF in the default BIFF8 palette
+		if date:
+			style.num_format_str = _GROUP_SCHEDULE_BIO_DATE_FORMAT
+		return style
+
+	workbook = xlwt.Workbook(encoding="utf-8")
+	worksheet = workbook.add_sheet("Bio_Applicant_Details")
 
 	for col, (h, w) in enumerate(zip(_GROUP_SCHEDULE_BIO_HEADERS, _GROUP_SCHEDULE_BIO_WIDTHS)):
-		worksheet.write(0, col, h, header_fmt)
-		worksheet.set_column(col, col, w)
+		is_date = col in _GROUP_SCHEDULE_BIO_DATE_COLS
+		# The template's "Date of Birth*" header alone is Times New Roman with wrap on.
+		header_style = (
+			_style("Times New Roman", date=True, header=True, wrap=True) if col == 5
+			else _style(date=is_date, header=True)
+		)
+		worksheet.write(0, col, h, header_style)
+		worksheet.col(col).width = w
+
+	cell_style = _style()
+	date_style = _style(date=True)
 
 	def _write_date(row, col, value):
 		if value:
-			worksheet.write_datetime(row, col, frappe.utils.get_datetime(value), date_fmt)
+			worksheet.write(row, col, frappe.utils.getdate(value), date_style)
 		else:
-			worksheet.write_blank(row, col, None, cell_fmt)
+			worksheet.write(row, col, None, date_style)
 
 	for r_idx, a in enumerate(ordered):
 		row = r_idx + 1
-		worksheet.write_number(row, 0, r_idx + 1, cell_fmt)
-		worksheet.write(row, 1, a.first_name or "", cell_fmt)
-		worksheet.write(row, 2, a.middle_name or "", cell_fmt)
-		worksheet.write(row, 3, a.last_name or "", cell_fmt)
-		worksheet.write(row, 4, a.passport_number or "", cell_fmt)
+		worksheet.write(row, 0, e_numbers.get(a.name) or "", cell_style)
+		worksheet.write(row, 1, a.first_name or "", cell_style)
+		worksheet.write(row, 2, a.middle_name or "", cell_style)
+		worksheet.write(row, 3, a.last_name or "", cell_style)
+		worksheet.write(row, 4, a.passport_number or "", cell_style)
 		_write_date(row, 5, a.date_of_birth)
-		worksheet.write(row, 6, a.nationality or "", cell_fmt)
+		worksheet.write(row, 6, a.nationality or "", cell_style)
 		_write_date(row, 7, a.passport_issue_date)
-		worksheet.write(row, 8, a.gender or "", cell_fmt)
-		worksheet.write(row, 9, a.passport_issue_place or "", cell_fmt)
+		worksheet.write(row, 8, a.gender or "", cell_style)
+		worksheet.write(row, 9, a.passport_issue_place or "", cell_style)
 		_write_date(row, 10, a.passport_expiry_date)
-		worksheet.write(row, 11, a.phone or "", cell_fmt)
-		worksheet.write(row, 12, a.email or "", cell_fmt)
+		worksheet.write(row, 11, a.phone or "", cell_style)
+		worksheet.write(row, 12, agency_email, cell_style)
 
-	workbook.close()
-	output.seek(0)
+	hidden = workbook.add_sheet("hiddenSheet")
+	hidden.visibility = 1
+	for r_idx, country in enumerate(GROUP_SCHEDULE_BIO_COUNTRIES):
+		hidden.write(r_idx, 0, country)
 
-	frappe.response["filename"] = f"Group_Schedule_Bio_Applicants_{frappe.utils.today()}.xlsx"
+	output = io.BytesIO()
+	workbook.save(output)
+
+	frappe.response["filename"] = f"Group_Schedule_Bio_Applicants_{frappe.utils.today()}.xls"
 	frappe.response["filecontent"] = output.getvalue()
 	frappe.response["type"] = "download"
 
