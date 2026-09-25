@@ -174,6 +174,21 @@ def void_transaction(transaction_name=None, void_reason=None, **kwargs):
 	if not void_reason:
 		frappe.throw("A reason is required to void a transaction.", frappe.ValidationError)
 
+	# A commission still on an invoice (item Pending or Paid) would keep being billed to the agency
+	# after voiding -- the invoice total, balance and PDF all still count it (QA P5-03 / S-05).
+	# Release it from the invoice first; Released items are off the invoice and may be voided.
+	on_invoice = frappe.get_all(
+		"Commission Batch Item",
+		filters={"transaction": transaction_name, "status": ["in", ["Pending", "Paid"]]},
+		pluck="parent",
+		limit=1,
+	)
+	if on_invoice:
+		frappe.throw(
+			f"This transaction is on invoice {on_invoice[0]}. Release it from that invoice before voiding it.",
+			frappe.ValidationError,
+		)
+
 	txn = frappe.get_doc("Applicant Transaction", transaction_name)
 	transition(txn, "Voided", remarks=void_reason)
 	return txn.as_dict()
