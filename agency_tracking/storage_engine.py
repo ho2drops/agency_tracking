@@ -35,6 +35,7 @@ def _r2_client():
 			frappe.ValidationError,
 		)
 	import boto3
+	from botocore.config import Config
 
 	return (
 		boto3.client(
@@ -42,6 +43,9 @@ def _r2_client():
 			endpoint_url=f"https://{settings.r2_account_id}.r2.cloudflarestorage.com",
 			aws_access_key_id=settings.r2_access_key_id,
 			aws_secret_access_key=secret,
+			region_name="auto",
+			# R2 rejects SigV2 presigned URLs (401); boto3 can fall back to V2 for presigning.
+			config=Config(signature_version="s3v4"),
 		),
 		settings,
 	)
