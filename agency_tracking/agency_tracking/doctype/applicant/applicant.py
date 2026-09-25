@@ -112,10 +112,14 @@ class Applicant(Document):
 				frappe.ValidationError,
 			)
 
+	def before_save(self):
+		# Before the row is written, so the "r2:" reference is what gets saved: from on_update the
+		# local file was deleted but the DB kept pointing at it (QA S-03).
+		self.sync_media_to_r2()
+
 	def on_update(self):
 		self.maybe_log_fee_transaction()
 		self.sync_fee_log()
-		self.sync_media_to_r2()
 
 	def sync_media_to_r2(self):
 		"""2026-09-21: the "photos"/"videos" storage categories existed in storage_engine.py's
@@ -130,6 +134,8 @@ class Applicant(Document):
 		migrate_attach_to_r2(self, "photograph", "photos", applicant_name=self.name)
 		migrate_attach_to_r2(self, "photo_full_body", "photos", applicant_name=self.name)
 		migrate_attach_to_r2(self, "experience_video", "videos", applicant_name=self.name)
+		for row in self.get("fee_log") or []:
+			migrate_attach_to_r2(row, "receipt_url", "finance-receipts", applicant_name=self.name)
 
 	def autofill_from_passport(self):
 		"""Auto-parse the passport scan's MRZ on every upload/replacement and fill in currently-blank
@@ -306,12 +312,9 @@ class Applicant(Document):
 		already has one gets its Status refreshed from the ledger's current state, so Finance
 		approving/rejecting/voiding on the Applicant Transaction itself is reflected back here
 		without the row itself ever needing another edit."""
-		from agency_tracking.storage_engine import migrate_attach_to_r2
 		from agency_tracking.finance_engine import get_fx_rate
 
 		for row in self.get("fee_log") or []:
-			migrate_attach_to_r2(row, "receipt_url", "finance-receipts", applicant_name=self.name)
-
 			if row.transaction:
 				new_status = frappe.db.get_value("Applicant Transaction", row.transaction, "status")
 				if new_status and new_status != row.status:
