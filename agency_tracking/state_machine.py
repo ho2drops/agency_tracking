@@ -259,7 +259,9 @@ def guard_locked_fields(doc, locked_statuses, fieldnames):
 	before = doc.get_doc_before_save()
 	if before is None or before.status not in locked_statuses:
 		return
-	changed = [f for f in fieldnames if before.get(f) != doc.get(f)]
+	# validate() runs before Frappe casts incoming values, so a REST save still carries e.g. a date as
+	# "2026-09-25" -- compare both sides cast to the field's type, or an untouched field reads as changed.
+	changed = [f for f in fieldnames if doc.cast(before.get(f), doc.meta.get_field(f)) != doc.cast(doc.get(f), doc.meta.get_field(f))]
 	if changed:
 		frappe.throw(
 			f"An {before.status} {doc.doctype} can't be edited ({', '.join(changed)}); void it and record a new one.",
