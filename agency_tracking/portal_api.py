@@ -151,6 +151,10 @@ def _get_contractor_for_session_user(contractor_override=None):
 		return frappe.get_doc("Contractor", contractor_name)
 
 	if contractor_override:
+		# Acting for an agency is reserved for internal readers; any other logged-in user used to be
+		# able to pass any agency's name and act as it (QA P6-01; Registrar access is decision D-20).
+		if not is_internal:
+			frappe.throw("Not permitted.", frappe.PermissionError)
 		return frappe.get_doc("Contractor", contractor_override)
 
 	if is_internal:
