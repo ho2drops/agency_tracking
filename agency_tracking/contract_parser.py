@@ -10,6 +10,8 @@ import decimal
 import frappe
 from frappe.utils import getdate
 
+from agency_tracking.roles import INTERNAL_STAFF_ROLES
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Unicode & Arabic Normalization Helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -396,37 +398,22 @@ def calculate_contract_end_date(contract_date, duration_str="2 Years"):
 		return None
 
 
-def _resolve_frappe_file_path(file_url):
-	"""Translates a Frappe file_url (/files/... or /private/files/...) to physical filesystem path."""
-	if not file_url:
+def _readable_file_path(file_url):
+	"""Disk path of an uploaded file, found ONLY through its File record (exact file_url) and only
+	if the caller may read that File. QA S-04/P6-02: this used to accept any path -- cwd-relative,
+	basename-only (public, private, or os.walk over the whole site folder) -- so any logged-in user
+	could have any file on the server parsed and its contents returned. Anything else (an external
+	http URL, an unknown path) resolves to nothing, i.e. an empty parse, as before."""
+	if not file_url or str(file_url).startswith("http"):
 		return None
-
-	clean = str(file_url).lstrip("/").replace("\\", "/")
-	if os.path.exists(clean):
-		return os.path.abspath(clean)
-
-	basename = os.path.basename(clean)
-	pub_path = frappe.get_site_path("public", "files", basename)
-	if os.path.exists(pub_path):
-		return pub_path
-
-	priv_path = frappe.get_site_path("private", "files", basename)
-	if os.path.exists(priv_path):
-		return priv_path
-
-	site_path = frappe.get_site_path(clean)
-	if os.path.exists(site_path):
-		return site_path
-
-	try:
-		site_folder = frappe.get_site_path()
-		for root, _, files in os.walk(site_folder):
-			if basename in files:
-				return os.path.join(root, basename)
-	except Exception:
-		pass
-
-	return None
+	name = frappe.db.get_value("File", {"file_url": file_url}, "name")
+	if not name:
+		return None
+	file_doc = frappe.get_doc("File", name)
+	if not file_doc.has_permission("read"):
+		frappe.throw("Not permitted to read this file.", frappe.PermissionError)
+	path = file_doc.get_full_path()
+	return path if os.path.exists(path) else None
 
 
 def _search(pattern, text, flags=re.IGNORECASE):
@@ -673,18 +660,33 @@ def parse_structured_contract_text(full_text_or_blocks):
 	return {k: v for k, v in result.items() if v is not None}
 
 
+# Who may call the parsers directly: staff, and agencies (they preview their own uploaded
+# contract before upload_contract). What they can parse is limited by _readable_file_path.
+PARSER_ROLES = INTERNAL_STAFF_ROLES | {"Foreign Agency"}
+
+
+def _require_parser_role():
+	if frappe.session.user != "Administrator" and not (PARSER_ROLES & set(frappe.get_roles())):
+		frappe.throw("Not permitted.", frappe.PermissionError)
+
+
 @frappe.whitelist()
 def parse_contract_file(file_url=None, destination_country=None, **kwargs):
 	"""
 	Given a Frappe file_url for an uploaded contract, returns a dict of Placement field updates.
 	Extracts contract_signed_date, and country-specific structured fields.
 	"""
+	_require_parser_role()
+	return _parse_contract(file_url, destination_country)
+
+
+def _parse_contract(file_url, destination_country=None):
+	"""parse_contract_file without the role gate, for upload_contract / create_muayena_placement /
+	the background job, which have their own gates. The file-read check still applies."""
 	if not file_url:
 		frappe.throw("file_url is required.", frappe.ValidationError)
-	file_path = _resolve_frappe_file_path(file_url)
+	file_path = _readable_file_path(file_url)
 	text = extract_text_from_pdf(file_path) if file_path else ""
-	if not text and file_url and str(file_url).startswith("http"):
-		text = ""
 
 	result = {"contract_signed_date": extract_contract_signed_date(text)}
 	if destination_country == "Saudi Arabia":
@@ -702,9 +704,15 @@ def parse_contract_file(file_url=None, destination_country=None, **kwargs):
 @frappe.whitelist()
 def parse_visa_file(file_url=None, **kwargs):
 	"""Kuwait visa document parser for placement_api.upload_visa."""
+	_require_parser_role()
+	return _parse_visa(file_url)
+
+
+def _parse_visa(file_url):
+	"""parse_visa_file without the role gate (see _parse_contract); the file-read check applies."""
 	if not file_url:
 		frappe.throw("file_url is required.", frappe.ValidationError)
-	file_path = _resolve_frappe_file_path(file_url)
+	file_path = _readable_file_path(file_url)
 	text = extract_text_from_pdf(file_path) if file_path else ""
 	return {k: v for k, v in extract_visa_fields(text).items() if v is not None}
 
@@ -713,10 +721,7 @@ def parse_visa_file(file_url=None, **kwargs):
 def enqueue_parse_contract_file(file_url=None, destination_country=None, **kwargs):
 	"""Async twin of parse_contract_file -- returns a Background Job reference immediately
 	instead of blocking on the parse. Poll background_jobs.get_job_status(job) for the result.
-	Note: unlike parse_contract_file itself (open to any authenticated user, a pre-existing gap
-	not being widened here), this async entry point is gated to internal staff."""
-	from agency_tracking.roles import INTERNAL_STAFF_ROLES
-
+	Gated to internal staff; the job runs as the requester, so the file-read check still applies."""
 	if not file_url:
 		frappe.throw("file_url is required.", frappe.ValidationError)
 	if frappe.session.user != "Administrator" and not (INTERNAL_STAFF_ROLES & set(frappe.get_roles())):
@@ -738,11 +743,8 @@ def enqueue_parse_contract_file(file_url=None, destination_country=None, **kwarg
 @frappe.whitelist()
 def enqueue_parse_visa_file(file_url=None, **kwargs):
 	"""Async twin of parse_visa_file -- returns a Background Job reference immediately instead
-	of blocking on the parse. Poll background_jobs.get_job_status(job) for the result. Note:
-	unlike parse_visa_file itself (open to any authenticated user, a pre-existing gap not being
-	widened here), this async entry point is gated to internal staff."""
-	from agency_tracking.roles import INTERNAL_STAFF_ROLES
-
+	of blocking on the parse. Poll background_jobs.get_job_status(job) for the result. Gated to
+	internal staff; the job runs as the requester, so the file-read check still applies."""
 	if not file_url:
 		frappe.throw("file_url is required.", frappe.ValidationError)
 	if frappe.session.user != "Administrator" and not (INTERNAL_STAFF_ROLES & set(frappe.get_roles())):

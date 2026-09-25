@@ -28,15 +28,16 @@ def _run_parse_passport(file_url=None, **kwargs):
 
 
 def _run_parse_contract(file_url=None, destination_country=None, **kwargs):
-	from agency_tracking.contract_parser import parse_contract_file
+	from agency_tracking.contract_parser import _parse_contract
 
-	return parse_contract_file(file_url, destination_country=destination_country)
+	# Runs as the requester (frappe.enqueue carries the user); the file-read check applies.
+	return _parse_contract(file_url, destination_country=destination_country)
 
 
 def _run_parse_visa(file_url=None, **kwargs):
-	from agency_tracking.contract_parser import parse_visa_file
+	from agency_tracking.contract_parser import _parse_visa
 
-	return parse_visa_file(file_url)
+	return _parse_visa(file_url)
 
 
 def _run_render_injaz(clearance_step_name=None, **kwargs):

@@ -6,7 +6,7 @@
 import frappe
 
 from agency_tracking.pagination import count_rows, page_args, paged_result
-from agency_tracking.contract_parser import parse_contract_file, parse_visa_file
+from agency_tracking.contract_parser import _parse_contract, _parse_visa
 from agency_tracking.state_machine import (
 	assert_placement_not_terminal,
 	lock_applicant_row,
@@ -83,7 +83,7 @@ def upload_contract(placement_name=None, file_url=None, **kwargs):
 	# Parsing is informational only: attach the file + fill parsed data fields, but never let
 	# it move the Placement's stage (strip_lifecycle_fields). Stage moves go through
 	# advance_placement()/transition() only. See state_machine.LIFECYCLE_FIELDS.
-	extracted = strip_lifecycle_fields(parse_contract_file(file_url, placement.destination_country))
+	extracted = strip_lifecycle_fields(_parse_contract(file_url, placement.destination_country))
 	placement.contract_file = file_url
 	placement.update(extracted)
 	placement.save(ignore_permissions=True)
@@ -106,7 +106,7 @@ def upload_visa(placement_name=None, file_url=None, **kwargs):
 	_linked_contractor_or_staff_write(placement)
 
 	# Informational-only, same as upload_contract: never let parsed data advance the stage.
-	extracted = strip_lifecycle_fields(parse_visa_file(file_url))
+	extracted = strip_lifecycle_fields(_parse_visa(file_url))
 	placement.visa_file = file_url
 	placement.update(extracted)
 	placement.save(ignore_permissions=True)
@@ -184,7 +184,7 @@ def create_muayena_placement(applicant_name=None, contractor_name=None, file_url
 	# (ER_CHECKREAD, "Record has changed since last read") instead of the clean "already has an
 	# active Placement" rejection it's supposed to fail with -- confirmed live.
 	frappe.db.commit()
-	extracted = parse_contract_file(file_url, applicant.destination_country) if file_url else {}
+	extracted = _parse_contract(file_url, applicant.destination_country) if file_url else {}
 
 	current_lock = lock_applicant_row(applicant_name)
 	if current_lock:
