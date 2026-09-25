@@ -123,12 +123,29 @@ def list_threads():
 	if contractor_name:
 		filters["contractor"] = contractor_name
 
-	return frappe.get_all(
+	threads = frappe.get_all(
 		"Chat Thread",
 		filters=filters,
-		fields=["name", "thread_type", "context_type", "context_reference", "last_message_at"],
+		fields=["name", "thread_type", "contractor", "context_type", "context_reference", "last_message_at", "creation"],
 		order_by="last_message_at desc",
 	)
+	# The caller is a participant of every thread here, so its participant list is theirs to see
+	# (the frontend proxy used to fetch this with a system token -- QA P8-05).
+	participants_by_thread = _participants_by_thread([t["name"] for t in threads])
+	for t in threads:
+		t["participants"] = participants_by_thread.get(t["name"], [])
+	return threads
+
+
+def _participants_by_thread(thread_names):
+	"""{thread: [user, ...]} in one query."""
+	out = {}
+	if thread_names:
+		for r in frappe.get_all(
+			"Chat Thread Participant", filters={"parent": ["in", thread_names]}, fields=["parent", "user"]
+		):
+			out.setdefault(r.parent, []).append(r.user)
+	return out
 
 
 @frappe.whitelist()
@@ -144,17 +161,7 @@ def list_all_threads():
 		order_by="last_message_at desc, creation desc",
 	)
 	# Batch-fetch every thread's participants in 1 query instead of 1 query per thread (was N+1).
-	thread_names = [t["name"] for t in threads]
-	participants_by_thread = {}
-	if thread_names:
-		rows = frappe.get_all(
-			"Chat Thread Participant",
-			filters={"parent": ["in", thread_names]},
-			fields=["parent", "user"],
-		)
-		for r in rows:
-			participants_by_thread.setdefault(r.parent, []).append(r.user)
-
+	participants_by_thread = _participants_by_thread([t["name"] for t in threads])
 	for t in threads:
 		t["participants"] = participants_by_thread.get(t["name"], [])
 	return threads
@@ -162,18 +169,37 @@ def list_all_threads():
 
 @frappe.whitelist()
 def get_thread_messages(thread_name=None, **kwargs):
-	thread_name = thread_name or kwargs.get("thread_id") or kwargs.get("thread")
-	if not thread_name:
-		frappe.throw("thread_name is required.", frappe.ValidationError)
-	oversight_roles = {"Admin", "Manager", "Communication Manager", "System Manager", "Administrator"}
-	if not (oversight_roles & set(frappe.get_roles())) and not is_participant(frappe.session.user, thread_name):
-		frappe.throw("Not permitted.", frappe.PermissionError)
+	thread_name = _readable_thread(thread_name or kwargs.get("thread_id") or kwargs.get("thread"))
 	return frappe.get_all(
 		"Chat Message",
 		filters={"thread": thread_name},
 		fields=["name", "sender", "message", "attachment", "mentioned_applicant", "mentioned_placement", "creation"],
 		order_by="creation asc",
 	)
+
+
+@frappe.whitelist()
+def get_thread_participants(thread_name=None, **kwargs):
+	"""Participants and their read receipts, for whoever may read the thread's messages (same gate
+	as get_thread_messages). The frontend proxy used to read the Chat Thread doc with a system
+	token for this -- QA P8-05."""
+	thread_name = _readable_thread(thread_name or kwargs.get("thread_id") or kwargs.get("thread"))
+	return frappe.get_all(
+		"Chat Thread Participant",
+		filters={"parent": thread_name, "parenttype": "Chat Thread"},
+		fields=["user", "last_read_at"],
+		order_by="idx asc",
+	)
+
+
+def _readable_thread(thread_name):
+	"""Thread read gate: participants, plus the oversight roles."""
+	if not thread_name:
+		frappe.throw("thread_name is required.", frappe.ValidationError)
+	oversight_roles = {"Admin", "Manager", "Communication Manager", "System Manager", "Administrator"}
+	if not (oversight_roles & set(frappe.get_roles())) and not is_participant(frappe.session.user, thread_name):
+		frappe.throw("Not permitted.", frappe.PermissionError)
+	return thread_name
 
 
 @frappe.whitelist()
