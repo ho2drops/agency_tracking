@@ -16,6 +16,8 @@
 # (ensure_bucket_exists): head_bucket to check, create_bucket if it 404s -- so an admin only has
 # to create the R2 API token, not pre-create the bucket by hand.
 
+import mimetypes
+
 import frappe
 
 STORAGE_CATEGORIES = {"cv", "injaz", "finance-receipts", "contracts", "visas", "photos", "videos"}
@@ -286,7 +288,10 @@ def migrate_attach_to_r2(doc, fieldname, category, applicant_name=None):
 		file_doc = frappe.get_doc("File", file_name)
 		content = file_doc.get_content()
 		key = build_object_key(applicant_name or doc.name, category, file_doc.file_name)
-		r2_ref = upload_to_r2(content, key, content_type=file_doc.content_type)
+		# File has no content_type field (reading it raised AttributeError, which the except below
+		# swallowed -- so nothing ever reached R2; QA S-03a). Derive it from the name instead.
+		content_type = mimetypes.guess_type(file_doc.file_name or "")[0]
+		r2_ref = upload_to_r2(content, key, content_type=content_type)
 		doc.set(fieldname, r2_ref)
 		frappe.delete_doc("File", file_name, ignore_permissions=True, force=True)
 	except Exception:
