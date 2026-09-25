@@ -3,10 +3,13 @@
 
 import frappe
 from frappe.model.document import Document
+from agency_tracking.state_machine import guard_locked_fields, guard_status_write
 
 
 class ApplicantTransaction(Document):
 	def validate(self):
+		guard_status_write(self, ("Pending",))  # QA A1: status only via the app's actions
+		guard_locked_fields(self, ("Approved", "Voided"), ("transaction_type", "amount_original", "currency_original", "fx_rate", "fx_rate_date", "amount_birr"))  # QA P5-07
 		# fx_rate/fx_rate_date are required unless the row is awaiting an FX rate (2026-09-23).
 		# Enforced here because mandatory_depends_on is only applied in the Desk form, not on the
 		# server -- the fields used to be plain reqd.

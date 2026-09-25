@@ -11,7 +11,12 @@ from agency_tracking.clearance_engine import _broadcast_todo_to_role_holders
 from agency_tracking.agency_tracking.doctype.clearance_step.clearance_step import CLEARANCE_ROLE_BY_STEP_TYPE
 from agency_tracking.pdf_utils import asset_datauri, code128_b_datauri, embed_image_datauri, render_pdf
 from agency_tracking.roles import INTERNAL_STAFF_ROLES
-from agency_tracking.state_machine import assert_clearance_step_not_terminal, auto_advance_placement_if_ready, log_action
+from agency_tracking.state_machine import (
+	assert_clearance_step_not_terminal,
+	auto_advance_placement_if_ready,
+	log_action,
+	sanctioned_write,
+)
 
 INJAZ_TEMPLATE = "templates/injaz_document.html"
 # The sending (Ethiopian) agency named at the top of the Injaz application header, and the contact
@@ -156,7 +161,8 @@ def complete_clearance_step(
 	if amount is not None:
 		step.amount = amount
 		step.payment_status = "Paid"
-	step.save(ignore_permissions=True)
+	with sanctioned_write():  # a guarded step action (QA A1)
+		step.save(ignore_permissions=True)
 	_close_open_todos(clearance_step_name)
 	log_action(
 		"Clearance Step",
@@ -207,7 +213,8 @@ def start_clearance_step(clearance_step_name=None, step_name=None, name=None, **
 		frappe.throw(f"A '{step.status}' clearance step cannot be (re)started.", frappe.ValidationError)
 	step.status = "In Progress"
 	step.date_started = today()
-	step.save(ignore_permissions=True)
+	with sanctioned_write():  # a guarded step action (QA A1)
+		step.save(ignore_permissions=True)
 	log_action("Clearance Step", step.name, f"[{step.title or step.name}] Started")
 	return step.as_dict()
 
@@ -243,7 +250,8 @@ def submit_embassy_step(clearance_step_name=None, override_reason=None, **kwargs
 		)
 	step.status = "Submitted"
 	step.date_started = today()
-	step.save(ignore_permissions=True)
+	with sanctioned_write():  # a guarded step action (QA A1)
+		step.save(ignore_permissions=True)
 	return step.as_dict()
 
 
@@ -342,7 +350,8 @@ def stamp_embassy_step(clearance_step_name=None, reference_no=None, override_rea
 	step.completed_by = frappe.session.user
 	if reference_no:
 		step.reference_no = reference_no
-	step.save(ignore_permissions=True)
+	with sanctioned_write():  # a guarded step action (QA A1)
+		step.save(ignore_permissions=True)
 	_close_open_todos(clearance_step_name)
 	log_action(
 		"Clearance Step",
@@ -377,7 +386,8 @@ def reject_embassy_step(clearance_step_name=None, rejection_remark=None, **kwarg
 	step.rejection_remark = rejection_remark
 	step.date_completed = today()
 	step.completed_by = frappe.session.user
-	step.save(ignore_permissions=True)
+	with sanctioned_write():  # a guarded step action (QA A1)
+		step.save(ignore_permissions=True)
 	_close_open_todos(clearance_step_name)
 	log_action(
 		"Clearance Step",
@@ -465,7 +475,8 @@ def reopen_clearance_step(clearance_step_name=None, reason=None, target_status=N
 	step.completed_by = None
 	if is_embassy and previous_status == "Rejected":
 		step.rejection_remark = None
-	step.save(ignore_permissions=True)
+	with sanctioned_write():  # a guarded step action (QA A1)
+		step.save(ignore_permissions=True)
 	_renotify_reopened_step(step, previous_completed_by)
 	log_action(
 		"Clearance Step",

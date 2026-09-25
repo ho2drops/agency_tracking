@@ -10,6 +10,7 @@
 # of ALLOWED_TRANSITIONS and STAGE_GATES grow as later build steps add doctypes/stages — the
 # function itself never changes shape. See BUILD_LOG.md "Standing decisions".
 import traceback
+from contextlib import contextmanager
 
 import frappe
 from frappe.utils import get_datetime, getdate, today
@@ -203,7 +204,78 @@ STAGE_GATES = {}
 TRANSITION_SIDE_EFFECTS = {}
 
 
+# --- Out-of-band write guard (QA A1: S-01, S-02, P4-02, P4-03, P5-07) ---
+# Role permissions still grant write on these doctypes (unchanged on purpose), so generic REST /
+# frappe.client.set_value / frappe.client.save / frappe.client.insert could set `status` directly,
+# skipping transition()'s topology, gates, audit event and side effects -- or insert a ledger row
+# already Approved, or edit an Approved amount in place. The doctypes' validate() now refuses
+# those writes unless they come from the app's own guarded code, which marks itself with
+# sanctioned_write(): transition() always, plus the few direct paths listed where they happen
+# (clearance step actions, system-created Approved ledger rows, the ticket-cost correction).
+# frappe.db.set_value never runs validate() and is unaffected.
+
+
+@contextmanager
+def sanctioned_write():
+	"""Marks writes made inside as coming from a guarded app code path (see above)."""
+	frappe.flags.sanctioned_write = (frappe.flags.sanctioned_write or 0) + 1
+	try:
+		yield
+	finally:
+		frappe.flags.sanctioned_write -= 1
+
+
+def _write_is_sanctioned():
+	f = frappe.flags
+	return bool(f.sanctioned_write or f.in_install or f.in_migrate or f.in_patch or f.in_import or f.in_fixtures)
+
+
+def guard_status_write(doc, initial_statuses):
+	"""Call from validate(). Outside a sanctioned path, a new doc may only start at one of
+	`initial_statuses`, and an existing doc's status may not change."""
+	if _write_is_sanctioned():
+		return
+	if doc.is_new():
+		if doc.status and doc.status not in initial_statuses:
+			frappe.throw(
+				f"A new {doc.doctype} starts at {' / '.join(initial_statuses)}; use the app's actions to move it on.",
+				frappe.ValidationError,
+			)
+		return
+	before = doc.get_doc_before_save()
+	if before is not None and before.status != doc.status:
+		frappe.throw(
+			f"{doc.doctype} status can only be changed through the app's actions, not edited directly "
+			f"({before.status} -> {doc.status}).",
+			frappe.ValidationError,
+		)
+
+
+def guard_locked_fields(doc, locked_statuses, fieldnames):
+	"""Call from validate(). Outside a sanctioned path, `fieldnames` may not change while the
+	stored row is in one of `locked_statuses` (e.g. an Approved ledger amount)."""
+	if _write_is_sanctioned() or doc.is_new():
+		return
+	before = doc.get_doc_before_save()
+	if before is None or before.status not in locked_statuses:
+		return
+	changed = [f for f in fieldnames if before.get(f) != doc.get(f)]
+	if changed:
+		frappe.throw(
+			f"An {before.status} {doc.doctype} can't be edited ({', '.join(changed)}); void it and record a new one.",
+			frappe.ValidationError,
+		)
+
+
 def transition(doc, new_status, actor=None, override=False, override_reason=None, remarks=None, ignore_permissions=False):
+	"""The only sanctioned status-change path -- see _transition. Everything it writes (the doc,
+	its Process Event, its side effects) counts as a sanctioned write."""
+	with sanctioned_write():
+		return _transition(doc, new_status, actor=actor, override=override, override_reason=override_reason,
+			remarks=remarks, ignore_permissions=ignore_permissions)
+
+
+def _transition(doc, new_status, actor=None, override=False, override_reason=None, remarks=None, ignore_permissions=False):
 	"""The only sanctioned status-change path. Validates the move is a legal edge for this
 	doctype, runs any registered gate, commits the change (which re-triggers the doctype's
 	own validate() against the new status), logs a Process Event, and returns the saved doc.

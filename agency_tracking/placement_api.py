@@ -11,6 +11,7 @@ from agency_tracking.state_machine import (
 	assert_placement_not_terminal,
 	lock_applicant_row,
 	log_action,
+	sanctioned_write,
 	strip_lifecycle_fields,
 	transition,
 )
@@ -322,23 +323,24 @@ def _record_ticket_expense(placement, amount, fee_type, description):
 
 	from frappe.utils import today
 
-	return frappe.get_doc(
-		{
-			"doctype": "Applicant Transaction",
-			"applicant": placement.applicant,
-			"placement": placement.name,
-			"transaction_type": "Expense",
-			"amount_original": Decimal(str(amount)),
-			"currency_original": "ETB",
-			"fx_rate": Decimal("1"),
-			"fx_rate_date": today(),
-			"description": description,
-			"stage_logged_at": "Ticketing",
-			"fee_type": fee_type,
-			"logged_by": frappe.session.user,
-			"status": "Approved",
-		}
-	).insert(ignore_permissions=True).name
+	with sanctioned_write():  # system-created Approved ledger row (QA A1)
+		return frappe.get_doc(
+			{
+				"doctype": "Applicant Transaction",
+				"applicant": placement.applicant,
+				"placement": placement.name,
+				"transaction_type": "Expense",
+				"amount_original": Decimal(str(amount)),
+				"currency_original": "ETB",
+				"fx_rate": Decimal("1"),
+				"fx_rate_date": today(),
+				"description": description,
+				"stage_logged_at": "Ticketing",
+				"fee_type": fee_type,
+				"logged_by": frappe.session.user,
+				"status": "Approved",
+			}
+		).insert(ignore_permissions=True).name
 
 
 def _correct_ticket_expense(txn_name, amount):
@@ -355,7 +357,8 @@ def _correct_ticket_expense(txn_name, amount):
 		return None
 	old = txn.amount_original
 	txn.amount_original = amount
-	txn.save(ignore_permissions=True)
+	with sanctioned_write():  # the one sanctioned in-place ledger edit: ticket price correction (2026-09-23)
+		txn.save(ignore_permissions=True)
 	log_action("Applicant Transaction", txn.name, f"{txn.fee_type} cost corrected {old} -> {amount} ETB")
 	return None
 

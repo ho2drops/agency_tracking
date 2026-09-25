@@ -10,7 +10,7 @@ import frappe
 from frappe.utils import today
 from decimal import Decimal
 
-from agency_tracking.state_machine import TRANSITION_SIDE_EFFECTS, lock_doc_row, log_action
+from agency_tracking.state_machine import TRANSITION_SIDE_EFFECTS, lock_doc_row, log_action, sanctioned_write
 
 
 # --- FX rates (Part D: "live rate fetched at entry... as_of_date override for backdated
@@ -239,23 +239,24 @@ def accrue_commission(placement, from_status=None, actor=None):
 
 	amount, currency = get_commission_rate(placement)
 	fx_rate, fx_rate_date = get_fx_rate(currency)
-	txn = frappe.get_doc(
-		{
-			"doctype": "Applicant Transaction",
-			"placement": placement.name,
-			"transaction_type": "Commission",
-			"amount_original": Decimal(str(amount)),
-			"currency_original": currency,
-			"fx_rate": Decimal(str(fx_rate)),
-			"fx_rate_date": fx_rate_date,
-			"amount_birr": round(Decimal(str(amount)) * Decimal(str(fx_rate)), 2),
-			"stage_logged_at": placement.status,
-			"logged_by": actor or frappe.session.user,
-			# System-computed, not a discretionary staff entry -- auto-Approved, skips the
-			# Finance review step that human-logged income/expense entries go through.
-			"status": "Approved",
-		}
-	).insert(ignore_permissions=True)
+	with sanctioned_write():  # system-created Approved ledger row (QA A1)
+		txn = frappe.get_doc(
+			{
+				"doctype": "Applicant Transaction",
+				"placement": placement.name,
+				"transaction_type": "Commission",
+				"amount_original": Decimal(str(amount)),
+				"currency_original": currency,
+				"fx_rate": Decimal(str(fx_rate)),
+				"fx_rate_date": fx_rate_date,
+				"amount_birr": round(Decimal(str(amount)) * Decimal(str(fx_rate)), 2),
+				"stage_logged_at": placement.status,
+				"logged_by": actor or frappe.session.user,
+				# System-computed, not a discretionary staff entry -- auto-Approved, skips the
+				# Finance review step that human-logged income/expense entries go through.
+				"status": "Approved",
+			}
+		).insert(ignore_permissions=True)
 
 	_maybe_auto_batch(placement.contractor, placement.destination_country)
 	return txn
@@ -525,23 +526,24 @@ def apply_batch_write_off(batch_name, write_off_amount, write_off_reason):
 	fx_rate, fx_rate_date = get_fx_rate(batch.currency)
 	amount_birr = round(amount * Decimal(str(fx_rate)), 2)
 
-	txn = frappe.get_doc(
-		{
-			"doctype": "Applicant Transaction",
-			"transaction_type": "Expense",
-			"amount_original": amount,
-			"currency_original": batch.currency,
-			"fx_rate": Decimal(str(fx_rate)),
-			"fx_rate_date": fx_rate_date,
-			"amount_birr": amount_birr,
-			"commission_batch_request": batch.name,
-			"description": f"Commission write-off (agreed discount) for {batch.name}: {write_off_reason}",
-			"stage_logged_at": "Commission Batch",
-			"logged_by": frappe.session.user,
-			# System-recorded settlement adjustment, not a discretionary human ledger entry.
-			"status": "Approved",
-		}
-	).insert(ignore_permissions=True)
+	with sanctioned_write():  # system-created Approved ledger row (QA A1)
+		txn = frappe.get_doc(
+			{
+				"doctype": "Applicant Transaction",
+				"transaction_type": "Expense",
+				"amount_original": amount,
+				"currency_original": batch.currency,
+				"fx_rate": Decimal(str(fx_rate)),
+				"fx_rate_date": fx_rate_date,
+				"amount_birr": amount_birr,
+				"commission_batch_request": batch.name,
+				"description": f"Commission write-off (agreed discount) for {batch.name}: {write_off_reason}",
+				"stage_logged_at": "Commission Batch",
+				"logged_by": frappe.session.user,
+				# System-recorded settlement adjustment, not a discretionary human ledger entry.
+				"status": "Approved",
+			}
+		).insert(ignore_permissions=True)
 
 	batch.append(
 		"write_offs",

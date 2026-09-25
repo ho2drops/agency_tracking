@@ -3,10 +3,12 @@
 
 import frappe
 from frappe.model.document import Document
+from agency_tracking.state_machine import guard_status_write
 
 
 class Complaint(Document):
 	def validate(self):
+		guard_status_write(self, ("New",))  # QA A1: status only via the app's actions
 		if self.status == "Dismissed" and not self.resolution_notes:
 			frappe.throw(
 				"A written reason is required to dismiss a complaint (business-workflow-srs.md).",

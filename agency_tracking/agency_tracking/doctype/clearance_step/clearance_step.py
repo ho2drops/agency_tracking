@@ -3,6 +3,7 @@
 
 import frappe
 from frappe.model.document import Document
+from agency_tracking.state_machine import guard_status_write
 
 # 2026-08-29: role-based access replaces per-row ToDo *permission* for the six country+step
 # roles (Clearance Officer/Ticketer keep the old ToDo-scoped model). Anyone holding the mapped
@@ -52,6 +53,7 @@ def scoped_clearance_step_types(user=None):
 
 class ClearanceStep(Document):
 	def validate(self):
+		guard_status_write(self, ("Pending",))  # QA A1: status only via the app's actions
 		if self.status == "Rejected" and not self.rejection_remark:
 			frappe.throw(
 				"A rejection remark is required when an Embassy step is Rejected.",

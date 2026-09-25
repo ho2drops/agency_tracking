@@ -4,6 +4,7 @@
 import frappe
 from frappe.model.document import Document
 from decimal import Decimal
+from agency_tracking.state_machine import guard_status_write
 
 # Part A.2 / business-workflow-srs.md Stage 1: bare minimum to open a file. Registrar-confirmed
 # floor (2026-08-29): phone/address are NOT required at Draft -- only identity + which track.
@@ -88,6 +89,7 @@ class Applicant(Document):
 				self.set(fieldname, None)
 
 	def validate(self):
+		guard_status_write(self, ("Draft",))  # QA A1: status only via the app's actions
 		self.normalize_uppercase_fields()
 		self.set_full_name()
 		self.validate_passport_dates()

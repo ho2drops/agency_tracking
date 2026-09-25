@@ -4,10 +4,12 @@
 import frappe
 from frappe.model.document import Document
 from frappe.utils import now_datetime
+from agency_tracking.state_machine import guard_status_write
 
 
 class Placement(Document):
 	def validate(self):
+		guard_status_write(self, ("Selected",))  # QA A1: status only via the app's actions
 		self.stamp_departed_on()
 		applicant = frappe.get_doc("Applicant", self.applicant)
 
