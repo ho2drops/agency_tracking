@@ -14,6 +14,8 @@ import traceback
 import frappe
 from frappe.utils import get_datetime, getdate, today
 
+from agency_tracking.db_errors import reraise_if_db_abort
+
 
 def log_action(reference_doctype, reference_name, remarks, event_type="Action", actor=None):
 	"""Append a Process Event for a non-transition action (write-off, Injaz payment, contractor
@@ -31,7 +33,8 @@ def log_action(reference_doctype, reference_name, remarks, event_type="Action", 
 				"remarks": remarks,
 			}
 		).insert(ignore_permissions=True)
-	except Exception:
+	except Exception as exc:
+		reraise_if_db_abort(exc)
 		frappe.log_error(title="log_action failed", message=f"{reference_doctype} {reference_name}: {remarks}")
 
 
@@ -276,7 +279,10 @@ def transition(doc, new_status, actor=None, override=False, override_reason=None
 	if side_effect:
 		try:
 			side_effect(doc, current_status)
-		except Exception:
+		except Exception as exc:
+			# A DB abort is not a side-effect failure: the transition itself was rolled back
+			# with it, so it must reach the caller (QA B-b1).
+			reraise_if_db_abort(exc)
 			# Side effects run after the transition has already committed (doc.save() +
 			# Process Event, both above). Letting an exception here propagate would make
 			# transition() look like it failed to the caller while the status change actually
@@ -439,7 +445,8 @@ def auto_advance_placement_if_ready(placement_name):
 		transition(
 			placement, "Stamped", actor=AUTO_ADVANCE_ACTOR, remarks=AUTO_ADVANCE_REMARKS, ignore_permissions=True
 		)
-	except Exception:
+	except Exception as exc:
+		reraise_if_db_abort(exc)
 		frappe.log_error(
 			title="Auto-advance Processing->Stamped failed",
 			message=f"{placement_name}: {frappe.get_traceback()}",

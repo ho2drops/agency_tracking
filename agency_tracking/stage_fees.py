@@ -18,6 +18,7 @@
 import frappe
 from frappe.utils import flt
 
+from agency_tracking.db_errors import reraise_if_db_abort
 from agency_tracking.state_machine import CLEARANCE_STEP_DONE_STATUSES
 
 INJAZ_FEE_TYPE = "Injaz Payment"
@@ -110,7 +111,9 @@ def _record_fee(step, placement, row, injaz_attempt=None):
 			}
 		).insert(ignore_permissions=True)
 		return txn.name
-	except Exception:
+	except Exception as exc:
+		# Before the savepoint rollback: after a DB abort the savepoint no longer exists (QA B-b1).
+		reraise_if_db_abort(exc)
 		frappe.db.rollback(save_point=save_point)
 		frappe.log_error(
 			title="Stage fee recording failed",
