@@ -12,8 +12,10 @@
 # were needed for CV-generated/selected/ticketed/departed counts. Only Clearance Step gained a
 # genuinely new field this step (completed_by, above) because nothing already captured "who."
 
+from decimal import Decimal
+
 import frappe
-from frappe.utils import getdate
+from frappe.utils import flt, getdate
 
 from agency_tracking.roles import INTERNAL_STAFF_ROLES
 
@@ -182,6 +184,17 @@ def get_complaint_aging_report():
 	}
 
 
+def _dec(value):
+	"""A stored Currency value as an exact Decimal. Frappe returns DECIMAL columns as floats, and
+	summing floats drifts (ten 0.10 lines -> 0.9999999999999999, QA P5-10), so every report total
+	is accumulated as Decimal and only turned back into a plain number when returned."""
+	return Decimal(str(flt(value)))
+
+
+def _money_sum(values):
+	return float(sum((_dec(v) for v in values), Decimal(0)))
+
+
 def _awaiting_fx_summary(filters):
 	"""Approved transactions still awaiting an FX rate (finance_engine.convert_awaiting_fx) count
 	as 0 in every *_birr total until a rate is recorded -- surfaced so the totals aren't silently
@@ -193,8 +206,8 @@ def _awaiting_fx_summary(filters):
 		fields=["currency_original", "amount_original"],
 	)
 	for row in rows:
-		by_currency[row.currency_original] = by_currency.get(row.currency_original, 0) + (row.amount_original or 0)
-	return {"count": len(rows), "by_currency": by_currency}
+		by_currency[row.currency_original] = by_currency.get(row.currency_original, Decimal(0)) + _dec(row.amount_original)
+	return {"count": len(rows), "by_currency": {k: float(v) for k, v in by_currency.items()}}
 
 
 @frappe.whitelist()
@@ -213,7 +226,7 @@ def get_financial_overview(from_date=None, to_date=None, **kwargs):
 			filters={**base_filters, "transaction_type": transaction_type},
 			fields=["amount_birr"],
 		)
-		totals[transaction_type.lower()] = sum(r.amount_birr or 0 for r in rows)
+		totals[transaction_type.lower()] = _money_sum(r.amount_birr for r in rows)
 
 	owed_rows = frappe.get_all(
 		"Applicant Transaction",
@@ -230,8 +243,8 @@ def get_financial_overview(from_date=None, to_date=None, **kwargs):
 		"from_date": from_date,
 		"to_date": to_date,
 		"totals_birr": totals,
-		"outstanding_owed_birr": sum(r.amount_birr or 0 for r in owed_rows),
-		"settled_in_period_birr": sum(r.total_amount_birr or 0 for r in settled_batches),
+		"outstanding_owed_birr": _money_sum(r.amount_birr for r in owed_rows),
+		"settled_in_period_birr": _money_sum(r.total_amount_birr for r in settled_batches),
 		"awaiting_fx": _awaiting_fx_summary(base_filters),
 	}
 
@@ -274,13 +287,12 @@ def get_cost_breakdown_report(from_date=None, to_date=None, **kwargs):
 		country = frappe.db.get_value("Placement", row.placement, "destination_country")
 		if not country:
 			continue
-		by_country.setdefault(country, 0)
-		by_country[country] += row.amount_birr or 0
+		by_country[country] = by_country.get(country, Decimal(0)) + _dec(row.amount_birr)
 
 	return {
 		"from_date": from_date,
 		"to_date": to_date,
-		"by_country_birr": by_country,
+		"by_country_birr": {k: float(v) for k, v in by_country.items()},
 		"awaiting_fx": _awaiting_fx_summary(base_filters),
 	}
 
@@ -301,11 +313,11 @@ def get_employee_financial_report(from_date=None, to_date=None, **kwargs):
 	):
 		if not row.logged_by:
 			continue
-		net.setdefault(row.logged_by, 0)
+		net.setdefault(row.logged_by, Decimal(0))
 		if row.transaction_type == "Expense":
-			net[row.logged_by] += row.amount_birr or 0
+			net[row.logged_by] += _dec(row.amount_birr)
 		elif row.transaction_type == "Income":
-			net[row.logged_by] -= row.amount_birr or 0
+			net[row.logged_by] -= _dec(row.amount_birr)
 
 	submitted_counts = {}
 	approved_counts = {}
@@ -328,7 +340,7 @@ def get_employee_financial_report(from_date=None, to_date=None, **kwargs):
 		report.append(
 			{
 				"user": user,
-				"net_expense_birr": net.get(user, 0),
+				"net_expense_birr": float(net.get(user, 0)),
 				"submitted_count": submitted,
 				"approval_rate": round(approved / submitted, 4) if submitted else None,
 			}
