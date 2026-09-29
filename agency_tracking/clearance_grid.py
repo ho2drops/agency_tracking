@@ -402,6 +402,12 @@ def save_clearance_grid(changes=None, **kwargs):
 			frappe.clear_last_message()
 			result["error"] = str(e) or type(e).__name__
 			result["field"] = cell[-1] if cell else None
+		# Only a caller who may read the step gets it back -- a refused agency / no-role caller used
+		# to receive the whole row (name, passport, national ID, emergency contacts) (QA P6-04).
+		if not step.has_permission("read"):
+			result["row"] = None
+			results.append(result)
+			continue
 		fresh = frappe.get_all("Clearance Step", filters={"name": name}, fields=_STEP_FIELDS)
 		result["row"] = _grid_rows(fresh)[0] if fresh else None
 		results.append(result)
