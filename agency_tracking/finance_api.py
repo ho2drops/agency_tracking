@@ -27,6 +27,21 @@ from agency_tracking.state_machine import log_action, transition
 from decimal import Decimal
 
 
+def _positive_decimal(value, label):
+	"""A money input as an exact Decimal, refused unless it is a number above zero. Sign comes from
+	the transaction type, so amounts are always positive (QA P5-08); 0 or a missing value is a
+	validation error, not a crash (QA P5-09)."""
+	if value is None or value == "":
+		frappe.throw(f"{label} is required.", frappe.ValidationError)
+	try:
+		value = Decimal(str(value).strip())
+	except Exception:
+		frappe.throw(f"{label} must be a number.", frappe.ValidationError)
+	if not value.is_finite() or value <= 0:
+		frappe.throw(f"{label} must be greater than zero.", frappe.ValidationError)
+	return value
+
+
 def _log_stage_transaction(
 	transaction_type,
 	amount,
@@ -42,6 +57,7 @@ def _log_stage_transaction(
 	reject_transaction) is the real gate now, so the write side can be permissive."""
 	if not (INTERNAL_STAFF_ROLES & set(frappe.get_roles())):
 		frappe.throw("Not permitted.", frappe.PermissionError)
+	amount = _positive_decimal(amount, "amount")
 
 	placement = frappe.get_doc("Placement", placement_name) if placement_name else None
 	if not applicant and placement:
@@ -66,11 +82,11 @@ def _log_stage_transaction(
 			"applicant": applicant,
 			"placement": placement_name,
 			"transaction_type": transaction_type,
-			"amount_original": Decimal(str(amount)),
+			"amount_original": amount,
 			"currency_original": currency,
 			"fx_rate": Decimal(str(fx_rate)),
 			"fx_rate_date": fx_rate_date,
-			"amount_birr": round(Decimal(str(amount)) * Decimal(str(fx_rate)), 2),
+			"amount_birr": round(amount * Decimal(str(fx_rate)), 2),
 			"description": description,
 			"stage_logged_at": stage_value,
 			"logged_by": frappe.session.user,
@@ -89,7 +105,8 @@ def log_stage_expense(amount=None, currency=None, description=None, placement=No
 	(Corridor Definition.known_fees), and since 2026-09-23 each is recorded as its own already-
 	Approved expense when its clearance step completes (stage_fees.py). A manual log here for
 	one of those fees would double-count it."""
-	amount = amount or kwargs.get("amount_original") or kwargs.get("amount_birr")
+	if amount is None:
+		amount = kwargs.get("amount_original", kwargs.get("amount_birr"))
 	currency = currency or kwargs.get("currency_original") or "ETB"
 	description = description or kwargs.get("reference_text") or kwargs.get("remarks") or "Expense"
 	placement = placement or kwargs.get("placement_name")
@@ -110,7 +127,8 @@ def log_stage_expense(amount=None, currency=None, description=None, placement=No
 def log_stage_income(amount=None, currency=None, description=None, placement=None, applicant=None, stage=None, stage_logged_at=None, **kwargs):
 	"""Same shape/permissions as log_stage_expense -- see its docstring for the same clearance-
 	step-cost caveat (known fees are auto-logged as Expense, not Income, at ticketing time)."""
-	amount = amount or kwargs.get("amount_original") or kwargs.get("amount_birr")
+	if amount is None:
+		amount = kwargs.get("amount_original", kwargs.get("amount_birr"))
 	currency = currency or kwargs.get("currency_original") or "ETB"
 	description = description or kwargs.get("reference_text") or kwargs.get("remarks") or "Income"
 	placement = placement or kwargs.get("placement_name")
