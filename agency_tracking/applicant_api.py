@@ -307,7 +307,13 @@ def register_applicant(applicant_name=None, override_ban=False, override_reason=
 	if doc.status == "Registered":
 		return doc.as_dict()
 	if kwargs:
-		data = {k: v for k, v in kwargs.items() if k not in ("cmd", "applicant_name", "name", "applicant")}
+		# Same system-field filter as update_applicant: the form's fields (medical, COC, fee included)
+		# go through, but cycle_number, status, active_placement etc. are never taken from the caller
+		# (QA P7-01 -- cycle_number=9 used to be saved as sent).
+		data = {
+			k: v for k, v in kwargs.items()
+			if k not in APPLICANT_SYSTEM_FIELDS and k not in ("cmd", "doctype", "applicant_name", "name", "applicant")
+		}
 		if data:
 			doc.update(data)
 	_check_country_ban_or_throw(applicant_name, doc.destination_country, override_ban, override_reason, action="Register")
