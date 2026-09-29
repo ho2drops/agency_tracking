@@ -1,6 +1,8 @@
 # Copyright (c) 2026, Agency and contributors
 # License: MIT. See LICENSE
 
+from decimal import Decimal
+
 import frappe
 from frappe.model.document import Document
 from frappe.utils import flt, today
@@ -19,16 +21,18 @@ class CommissionBatchRequest(Document):
 		self.title = f"{self.contractor} [{self.name}]" if self.contractor and self.name else self.name
 
 	def _txn_amounts(self, transaction):
-		"""(original-currency amount, birr amount) for one batched commission transaction."""
+		"""(original-currency amount, birr amount) for one batched commission transaction, as exact
+		Decimals -- float sums drift (0.1 + 0.2 != 0.3), which kept an invoice written off to exactly
+		its balance from ever reading Settled (QA P5-02)."""
 		row = frappe.db.get_value(
 			"Applicant Transaction", transaction, ["amount_original", "amount_birr"], as_dict=True
 		)
-		return flt(row.amount_original if row else 0), flt(row.amount_birr if row else 0)
+		return _dec(row.amount_original if row else 0), _dec(row.amount_birr if row else 0)
 
 	def paid_from_items(self):
 		"""(original-currency, birr) already settled item-by-item (per-applicant marks). Excludes
 		Released items."""
-		original = birr = 0
+		original = birr = Decimal(0)
 		for row in self.items or []:
 			if row.status != "Paid":
 				continue
@@ -48,8 +52,8 @@ class CommissionBatchRequest(Document):
 			)
 		) if txns else set()
 		live = [row for row in (self.write_offs or []) if row.transaction not in voided]
-		original = sum(flt(row.amount_original) for row in live)
-		birr = sum(flt(row.amount_birr) for row in live)
+		original = sum((_dec(row.amount_original) for row in live), Decimal(0))
+		birr = sum((_dec(row.amount_birr) for row in live), Decimal(0))
 		return original, birr
 
 	def _apply_settlement_math(self):
@@ -77,7 +81,7 @@ class CommissionBatchRequest(Document):
 		batch."""
 		items = self.items or []
 		# Released items were carried into a later batch -- no longer this batch's obligation.
-		total_original = total_birr = 0
+		total_original = total_birr = Decimal(0)
 		for row in items:
 			if row.status == "Released":
 				continue
@@ -95,12 +99,12 @@ class CommissionBatchRequest(Document):
 		self.paid_amount_birr = paid_birr
 
 		accounted_original = paid_original + write_off_original
-		self.balance_due_original = max(flt(self.total_amount_original) - accounted_original, 0)
+		self.balance_due_original = max(total_original - accounted_original, Decimal(0))
 
 		# Birr mirror, for internal accounting only. Each write-off's Birr amount is fixed at the
 		# moment it's booked.
 		accounted_birr = paid_birr + write_off_birr
-		self.balance_due_birr = max(flt(self.total_amount_birr) - accounted_birr, 0)
+		self.balance_due_birr = max(total_birr - accounted_birr, Decimal(0))
 
 		# Settled = nothing left owed on THIS batch, whether paid off, written off, or every item
 		# released into a later batch (total_original 0 -- the CBR-00007 "stuck at Partially
@@ -119,6 +123,11 @@ class CommissionBatchRequest(Document):
 			# (QA P5-04). The invoice is owed again, so it must not keep reading Settled.
 			self.status = "Partially Settled" if accounted_original > 0 else "Draft"
 			self.settled_on = None
+
+
+def _dec(value):
+	"""A stored Currency value as an exact Decimal (via str, so a float like 0.1 stays 0.1)."""
+	return Decimal(str(flt(value)))
 
 
 def get_permission_query_conditions(user):
