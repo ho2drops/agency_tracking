@@ -234,6 +234,14 @@ def cancel_applicant(applicant_name=None, reason=None, **kwargs):
 	doc = frappe.get_doc("Applicant", applicant_name)
 	if not doc.has_permission("write"):
 		frappe.throw("Not permitted.", frappe.PermissionError)
+	return cancel_applicant_cascade(doc, reason)
+
+
+def cancel_applicant_cascade(doc, reason):
+	"""The cancel cascade itself, with no permission check of its own: the caller has already
+	decided this user may cancel -- cancel_applicant by Applicant write, the medical UNFIT
+	endpoints by MEDICAL_RECORD_ROLES. Medical Officer has no write on Applicant or Placement, so
+	routing UNFIT through cancel_applicant refused it and the result was never saved (QA P4-05)."""
 	if doc.status not in CYCLE_REGRESSION_STATUSES:
 		frappe.throw(
 			f"Only Registered or CV Generated applicants can be cancelled (currently '{doc.status}').",
@@ -244,13 +252,13 @@ def cancel_applicant(applicant_name=None, reason=None, **kwargs):
 
 	if doc.active_placement:
 		placement = frappe.get_doc("Placement", doc.active_placement)
-		transition(placement, "Cancelled", remarks=reason)
+		transition(placement, "Cancelled", remarks=reason, ignore_permissions=True)
 		frappe.db.set_value(
 			"Clearance Step", {"placement": placement.name}, "status", "Cancelled"
 		)
 		doc.active_placement = None
 
-	transition(doc, "Cancelled", remarks=reason)
+	transition(doc, "Cancelled", remarks=reason, ignore_permissions=True)
 	return doc.as_dict()
 
 

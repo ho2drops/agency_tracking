@@ -228,9 +228,9 @@ def record_selected_medical_result(placement_name=None, status=None, examination
 	placement.save(ignore_permissions=True)
 
 	if status == "UNFIT":
-		from agency_tracking.applicant_api import cancel_applicant
+		from agency_tracking.applicant_api import cancel_applicant_cascade
 
-		cancel_applicant(placement.applicant, "Medical (Selected stage) result: UNFIT.")
+		cancel_applicant_cascade(frappe.get_doc("Applicant", placement.applicant), "Medical (Selected stage) result: UNFIT.")
 
 	return placement.as_dict()
 
@@ -257,9 +257,9 @@ def record_predeparture_medical_result(placement_name=None, status=None, examina
 	placement.save(ignore_permissions=True)
 
 	if status == "UNFIT":
-		from agency_tracking.applicant_api import cancel_applicant
+		from agency_tracking.applicant_api import cancel_applicant_cascade
 
-		cancel_applicant(placement.applicant, "Medical (pre-departure) result: UNFIT.")
+		cancel_applicant_cascade(frappe.get_doc("Applicant", placement.applicant), "Medical (pre-departure) result: UNFIT.")
 
 	return placement.as_dict()
 
