@@ -640,7 +640,13 @@ def mark_batch_items_paid(item_names):
 		frappe.throw("No items given.", frappe.ValidationError)
 	affected_batches = set()
 	for item_name in item_names:
-		parent = frappe.db.get_value("Commission Batch Item", item_name, "parent")
+		parent, status = frappe.db.get_value("Commission Batch Item", item_name, ["parent", "status"]) or (None, None)
+		# A Released item is owed on the invoice it was carried into, not this one (QA P5-06).
+		if status == "Released":
+			frappe.throw(
+				f"{item_name} was released from invoice {parent} to a later invoice; mark it paid there.",
+				frappe.ValidationError,
+			)
 		frappe.db.set_value("Commission Batch Item", item_name, "status", "Paid")
 		if parent:
 			affected_batches.add(parent)
