@@ -225,7 +225,7 @@ def test_storage_connection():
 	(creating it if missing), then does a tiny round-trip write/delete to confirm object-level
 	access. Returns a status dict rather than throwing, so a settings-page 'Test Connection'
 	button can render success/failure cleanly. Never raises into the caller."""
-	frappe.only_for(("System Manager", "Administrator"))
+	frappe.only_for(("System Manager", "Administrator"), message=True)  # message: QA P7-03
 	try:
 		client, settings = _r2_client()
 	except frappe.ValidationError as e:

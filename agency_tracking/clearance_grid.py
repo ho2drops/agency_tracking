@@ -21,7 +21,7 @@ from frappe.utils import cint, get_datetime
 
 from agency_tracking import clearance_api
 from agency_tracking.agency_tracking.doctype.clearance_step.clearance_step import CLEARANCE_ROLE_BY_STEP_TYPE
-from agency_tracking.pagination import count_rows, page_args, paged_result
+from agency_tracking.pagination import count_rows, page_args, paged_result, require_list_permission
 from agency_tracking.state_machine import CLEARANCE_STEP_DONE_STATUSES
 
 MANAGEMENT = {"Manager", "Admin", "System Manager"}
@@ -230,6 +230,7 @@ def list_clearance_grid(
 	(read-only history). Same row scoping as every other Clearance Step list (role -> step_type,
 	Clearance Officer -> ToDo-assigned rows). Each row carries `modified` (and `applicant_modified`),
 	which save_clearance_grid needs back to detect a row changed by someone else meanwhile."""
+	require_list_permission("Clearance Step")
 	_require_step_type(step_type)
 	filters = _step_filters(step_type, status, include_closed, search)
 	start, length = page_args(limit_start, limit_page_length)

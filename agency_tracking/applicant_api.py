@@ -8,7 +8,7 @@
 
 import frappe
 
-from agency_tracking.pagination import count_rows, page_args, paged_result
+from agency_tracking.pagination import count_rows, page_args, paged_result, require_list_permission
 from agency_tracking.state_machine import LIFECYCLE_FIELDS, transition
 
 CYCLE_REGRESSION_STATUSES = ("Registered", "CV Generated")
@@ -341,6 +341,7 @@ def list_applicants(filters=None, limit_page_length=100, order_by="modified desc
 	Manager, Communication Manager, the six country+step roles -- all granted read-only access on
 	the doctype itself, see applicant.json). frappe.get_list enforces those permissions the same
 	way it would for any other doctype; no separate role check needed here."""
+	require_list_permission("Applicant")
 	if isinstance(filters, str):
 		filters = frappe.parse_json(filters)
 	start, length = page_args(limit_start, limit_page_length)
@@ -363,6 +364,10 @@ def set_country_ban(applicant_name=None, country=None, reason=None, **kwargs):
 	exposure" architecture rule. Doctype permissions already grant create to Registrar/
 	Complaint Manager/Manager/Admin/System Manager, so this just wraps a normal insert() and
 	lets Frappe's own permission check do the gating."""
+	# Same create permission insert() enforces, checked first so the refusal carries a message
+	# (insert() raised an empty one) and comes before the "already banned" lookup (QA P7-03).
+	if not frappe.has_permission("Applicant Country Ban", "create"):
+		frappe.throw("Not permitted.", frappe.PermissionError)
 	if not applicant_name:
 		frappe.throw("applicant_name is required.", frappe.ValidationError)
 	if not country:
@@ -389,6 +394,7 @@ def set_country_ban(applicant_name=None, country=None, reason=None, **kwargs):
 
 @frappe.whitelist()
 def list_country_bans(applicant_name=None, active_only=True):
+	require_list_permission("Applicant Country Ban")
 	filters = {"applicant": applicant_name} if applicant_name else {}
 	if frappe.utils.cint(active_only):
 		filters["active"] = 1

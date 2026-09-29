@@ -18,6 +18,15 @@ from frappe.utils import cint
 MAX_PAGE_LENGTH = 500
 
 
+def require_list_permission(doctype):
+	"""The same doctype-level check frappe.get_list runs (select or read), but refused with a
+	message: get_list raises a bare PermissionError, which reached the frontend as an empty error
+	(QA P7-03). Nobody is refused who wasn't already."""
+	ptype = "select" if frappe.only_has_select_perm(doctype) else "read"
+	if not frappe.has_permission(doctype, ptype=ptype):
+		frappe.throw("Not permitted.", frappe.PermissionError)
+
+
 def page_args(limit_start=None, limit_page_length=None, default=100):
 	"""(start, length) for frappe.get_list/get_all. `default=0` means the endpoint historically
 	returned everything when no page size was given -- kept as-is for a first page, so those

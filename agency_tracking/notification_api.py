@@ -40,7 +40,7 @@ def regenerate_vapid_keys():
 	invalidates every existing Push Subscription -- browsers subscribed under the old key will
 	stop receiving pushes until they re-subscribe with the new applicationServerKey. Returns the
 	new public key."""
-	frappe.only_for(("System Manager", "Administrator"))
+	frappe.only_for(("System Manager", "Administrator"), message=True)  # message: QA P7-03
 	public_key, private_pem = _generate_vapid_keys()
 	config = frappe.get_single("Notification Config")
 	config.vapid_public_key = public_key

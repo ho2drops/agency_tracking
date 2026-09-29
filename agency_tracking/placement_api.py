@@ -5,7 +5,7 @@
 
 import frappe
 
-from agency_tracking.pagination import count_rows, page_args, paged_result
+from agency_tracking.pagination import count_rows, page_args, paged_result, require_list_permission
 from agency_tracking.contract_parser import _parse_contract, _parse_visa
 from agency_tracking.state_machine import (
 	assert_placement_not_terminal,
@@ -536,6 +536,7 @@ def list_placements(filters=None, limit_page_length=100, order_by="modified desc
 	deliberately NOT re-added here even though Applicant has it too -- Placement already carries
 	its own destination_country, and Placement.validate() guarantees it always equals the
 	applicant's, so joining it again would just be a same-value overwrite."""
+	require_list_permission("Placement")
 	if isinstance(filters, str):
 		filters = frappe.parse_json(filters)
 	start, length = page_args(limit_start, limit_page_length)

@@ -8,6 +8,7 @@ from frappe.utils import formatdate, today
 
 from agency_tracking.clearance_engine import assign_clearance_step as _engine_assign_clearance_step
 from agency_tracking.clearance_engine import _broadcast_todo_to_role_holders
+from agency_tracking.pagination import require_list_permission
 from agency_tracking.agency_tracking.doctype.clearance_step.clearance_step import CLEARANCE_ROLE_BY_STEP_TYPE
 from agency_tracking.pdf_utils import asset_datauri, code128_b_datauri, embed_image_datauri, render_pdf
 from agency_tracking.roles import INTERNAL_STAFF_ROLES
@@ -593,6 +594,7 @@ def record_other_payment(
 @frappe.whitelist()
 def list_my_clearance_steps(placement=None):
 	"""A Clearance Officer / Ticketer's queue, optionally filtered by placement."""
+	require_list_permission("Clearance Step")
 	filters = {}
 	if placement:
 		filters["placement"] = placement
