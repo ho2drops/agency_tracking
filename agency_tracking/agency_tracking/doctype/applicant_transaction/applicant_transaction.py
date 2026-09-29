@@ -1,8 +1,11 @@
 # Copyright (c) 2026, Agency and contributors
 # License: MIT. See LICENSE
 
+from decimal import Decimal
+
 import frappe
 from frappe.model.document import Document
+from frappe.utils import flt
 from agency_tracking.state_machine import guard_locked_fields, guard_status_write
 
 
@@ -20,8 +23,12 @@ class ApplicantTransaction(Document):
 			)
 
 		# Defense in depth: amount_birr must always be the product of the two figures that
-		# produced it, regardless of which code path created this row.
-		self.amount_birr = round((self.amount_original or 0) * (self.fx_rate or 0), 2)
+		# produced it, regardless of which code path created this row. Exact Decimal product rounded
+		# once, half-even -- the same rule the writers use; a float product re-priced lines on every
+		# save (2.675 x 1 -> 2.67 at approval after being written as 2.68, QA P5-01).
+		self.amount_birr = round(
+			Decimal(str(flt(self.amount_original))) * Decimal(str(flt(self.fx_rate))), 2
+		)
 
 		if self.placement and not self.cycle_number:
 			self.cycle_number = frappe.db.get_value("Placement", self.placement, "cycle_number")
