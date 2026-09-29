@@ -52,9 +52,24 @@ def get_fx_rate(currency, as_of_date=None):
 	)
 
 
+def positive_rate(value):
+	"""An FX rate as an exact Decimal, refused unless it is a number above zero -- a zero or negative
+	rate would convert every amount in that currency to nothing or to the wrong sign (QA P7-02)."""
+	from decimal import Decimal
+
+	try:
+		rate = Decimal(str(value).strip())
+	except Exception:
+		frappe.throw("rate_to_birr must be a number.", frappe.ValidationError)
+	if not rate.is_finite() or rate <= 0:
+		frappe.throw("rate_to_birr must be greater than zero.", frappe.ValidationError)
+	return rate
+
+
 def record_fx_rate(currency, rate_to_birr, rate_date=None):
 	if currency == "ETB":
 		frappe.throw("ETB is Birr itself -- it always converts 1:1, no FX rate to record.", frappe.ValidationError)
+	rate_to_birr = positive_rate(rate_to_birr)
 	rate_date = rate_date or today()
 	existing = frappe.db.get_value("FX Rate", {"currency": currency, "rate_date": rate_date}, "name")
 	if existing:

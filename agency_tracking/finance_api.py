@@ -304,8 +304,8 @@ def set_fx_rate(currency=None, rate_to_birr=None, rate_date=None, **kwargs):
 		frappe.throw("currency is required.", frappe.ValidationError)
 	if not ({"Finance Manager", "Admin", "System Manager"} & set(frappe.get_roles())):
 		frappe.throw("Not permitted.", frappe.PermissionError)
-	rate = rate_to_birr or kwargs.get("rate_to_etb") or kwargs.get("rate")
-	if not rate:
+	rate = next((r for r in (rate_to_birr, kwargs.get("rate_to_etb"), kwargs.get("rate")) if r not in (None, "")), None)
+	if rate is None:
 		frappe.throw("rate_to_birr is required.", frappe.ValidationError)
 	return {"fx_rate": record_fx_rate(currency, rate, rate_date or today())}
 

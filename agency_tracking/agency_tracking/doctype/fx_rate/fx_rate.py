@@ -7,6 +7,9 @@ from frappe.model.document import Document
 
 class FXRate(Document):
 	def validate(self):
+		from agency_tracking.finance_engine import positive_rate
+
+		positive_rate(self.rate_to_birr)  # also covers rates entered in Desk (QA P7-02)
 		existing = frappe.db.get_value(
 			"FX Rate",
 			{"currency": self.currency, "rate_date": self.rate_date, "name": ["!=", self.name or ""]},
