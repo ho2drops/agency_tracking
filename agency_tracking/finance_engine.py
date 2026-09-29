@@ -610,7 +610,9 @@ def settle_batch_request(batch_name, settlement_reference):
 	if batch.status == "Settled":
 		return batch  # idempotent — a statement line re-matched against an already-settled batch is a no-op
 	for item in batch.items:
-		item.status = "Paid"
+		# A Released item was carried into a later invoice and is owed there, not here (QA P5-05).
+		if item.status != "Released":
+			item.status = "Paid"
 	batch.status = "Settled"
 	batch.settlement_reference = settlement_reference
 	batch.settled_on = today()
