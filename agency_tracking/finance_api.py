@@ -191,6 +191,12 @@ def void_transaction(transaction_name=None, void_reason=None, **kwargs):
 
 	txn = frappe.get_doc("Applicant Transaction", transaction_name)
 	transition(txn, "Voided", remarks=void_reason)
+	# Voiding a write-off's Expense row takes the write-off off its invoice: recompute the balance
+	# (QA P5-04).
+	for batch_name in frappe.get_all(
+		"Commission Batch Write Off", filters={"transaction": transaction_name}, pluck="parent", distinct=True
+	):
+		frappe.get_doc("Commission Batch Request", batch_name).save(ignore_permissions=True)
 	return txn.as_dict()
 
 

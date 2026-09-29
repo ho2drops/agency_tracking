@@ -39,9 +39,17 @@ class CommissionBatchRequest(Document):
 
 	def write_off_totals(self):
 		"""(original-currency, birr) summed across every write-off row -- a batch can have any
-		number of write-offs (agency negotiates a discount more than once), not just one."""
-		original = sum(flt(row.amount_original) for row in (self.write_offs or []))
-		birr = sum(flt(row.amount_birr) for row in (self.write_offs or []))
+		number of write-offs (agency negotiates a discount more than once), not just one. A write-off
+		whose Expense transaction was voided no longer counts (QA P5-04)."""
+		txns = [row.transaction for row in (self.write_offs or []) if row.transaction]
+		voided = set(
+			frappe.get_all(
+				"Applicant Transaction", filters={"name": ["in", txns], "status": "Voided"}, pluck="name"
+			)
+		) if txns else set()
+		live = [row for row in (self.write_offs or []) if row.transaction not in voided]
+		original = sum(flt(row.amount_original) for row in live)
+		birr = sum(flt(row.amount_birr) for row in live)
 		return original, birr
 
 	def _apply_settlement_math(self):
@@ -106,6 +114,11 @@ class CommissionBatchRequest(Document):
 				self.settled_on = today()
 		elif self.status in ("Draft", "Sent") and accounted_original > 0:
 			self.status = "Partially Settled"
+		elif self.status == "Settled":
+			# Only reachable when something that was counted stopped counting -- a voided write-off
+			# (QA P5-04). The invoice is owed again, so it must not keep reading Settled.
+			self.status = "Partially Settled" if accounted_original > 0 else "Draft"
+			self.settled_on = None
 
 
 def get_permission_query_conditions(user):
