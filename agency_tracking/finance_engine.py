@@ -250,9 +250,15 @@ def accrue_commission(placement, from_status=None, actor=None):
 		# original placement this one replaces. Not an idempotency no-op; there was never
 		# going to be a commission transaction for this placement at all.
 		return None
-	if frappe.db.exists(
+	# S-10: serialise accruals for this placement (early trigger vs Departed), then check with a
+	# locking read -- a plain read would use this transaction's snapshot and miss the other
+	# request's just-committed row.
+	lock_doc_row("Placement", placement.name)
+	if frappe.db.get_value(
 		"Applicant Transaction",
 		{"placement": placement.name, "transaction_type": "Commission", "status": ["!=", "Voided"]},
+		"name",
+		for_update=True,
 	):
 		return None  # idempotency guard — already accrued, early-trigger or Departed alike
 
