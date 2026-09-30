@@ -4521,7 +4521,7 @@
           "Placement"
         ],
         "summary": "Move a Placement forward via the sanctioned transition() path",
-        "description": "The direct/manual advance. override_reason attempts a Manager Override if the move is gate-blocked.",
+        "description": "The direct/manual advance. override_reason attempts a Manager Override if the move is gate-blocked. Refuses new_status='Cancelled': cancel through applicant_api.cancel_applicant (reason + freezes applicant, placement and steps).",
         "x-roles": [
           "Write access to the Placement",
           "Manager/Admin required for any override"
@@ -4590,7 +4590,7 @@
           "Placement"
         ],
         "summary": "Create a Placement directly (Muayena track)",
-        "description": "Muayena enters directly at Selected with contract in hand -- no portal, no CV. Contractor is always picked manually.",
+        "description": "Muayena enters directly at Selected with contract in hand -- no portal, no CV. Contractor is always picked manually. Registrar, Manager, Admin or Contract Parser. Refused if the applicant has an active country ban on their destination_country (no override here).",
         "x-roles": [
           "Registrar",
           "Manager",
@@ -5274,7 +5274,7 @@
           "Portal (Foreign Agency)"
         ],
         "summary": "Select a candidate (creates a Placement)",
-        "description": "Atomic, globally exclusive -- row-locked so two concurrent selections can't both succeed. free_replacement_for_complaint uses an approved free-replacement credit instead of billing normally. Refused if the applicant has an active country ban on their destination_country (no override on this endpoint): a Foreign Agency gets a generic 417 \"This candidate is no longer available.\" with no ban details; internal staff get the detailed 403 ban message. Normally unreachable, since list_portal_candidates never returns a banned applicant; covers a stale portal page or a direct API call. A medically UNFIT applicant is refused: a Foreign Agency gets the generic 417 \"This candidate is no longer available.\"; internal staff get a detailed 417.",
+        "description": "Atomic, globally exclusive -- row-locked so two concurrent selections can't both succeed. free_replacement_for_complaint uses an approved free-replacement credit instead of billing normally. Refused if the applicant has an active country ban on their destination_country (no override on this endpoint): a Foreign Agency gets a generic 417 \"This candidate is no longer available.\" with no ban details; internal staff get the detailed 403 ban message. Normally unreachable, since list_portal_candidates never returns a banned applicant; covers a stale portal page or a direct API call. A medically UNFIT applicant is refused: a Foreign Agency gets the generic 417 \"This candidate is no longer available.\"; internal staff get a detailed 417. Returns only the portal placement fields (same list as list_my_placements).",
         "x-roles": [
           "Foreign Agency (own country's catalog only)"
         ],
@@ -9375,7 +9375,7 @@
           "Clearance"
         ],
         "summary": "Save many rows' changed cells; each cell runs the same action as its button",
-        "description": "changes = [{name, modified, fields:{column: value}, override_reason?}] (max 200 rows; send only changed cells). Every cell goes through the real action -- status -> start/complete/submit/stamp/reject, Wakala -> record_wakala_payment, Injaz paid -> record_injaz_payment, appointment/Injaz ID -> set_taeshir_appointment, Police Ashara -> record_police_ashara, LMIS applicant fields -> update_applicant_for_lmis -- so fees, gates (Injaz Paid before Taeshir Complete, Wakala Paid before Submit/Stamp, Taeshir Complete before Stamp), notifications and audit log are identical to the buttons. Within a row, data cells apply before the status move, so 'Injaz Paid + Complete' or 'Wakala Paid + Submitted' work in one save. Rejected needs rejection_remark in the same row. Moving a step backwards is refused (use reopen_clearance_step). Each row is all-or-nothing and independent. Result per row, in order: {name, ok:true, row} or {name, ok:false, error, field, conflict?, row} -- `row` is the current grid row either way; conflict=true means the row changed after it was loaded (reload it). override_reason = Manager/Admin override for Wakala unpaid at Submit/Stamp.",
+        "description": "changes = [{name, modified, fields:{column: value}, override_reason?}] (max 200 rows; send only changed cells). Every cell goes through the real action -- status -> start/complete/submit/stamp/reject, Wakala -> record_wakala_payment, Injaz paid -> record_injaz_payment, appointment/Injaz ID -> set_taeshir_appointment, Police Ashara -> record_police_ashara, LMIS applicant fields -> update_applicant_for_lmis -- so fees, gates (Injaz Paid before Taeshir Complete, Wakala Paid before Submit/Stamp, Taeshir Complete before Stamp), notifications and audit log are identical to the buttons. Within a row, data cells apply before the status move, so 'Injaz Paid + Complete' or 'Wakala Paid + Submitted' work in one save. Rejected needs rejection_remark in the same row. Moving a step backwards is refused (use reopen_clearance_step). Each row is all-or-nothing and independent. Result per row, in order: {name, ok:true, row} or {name, ok:false, error, field, conflict?, row} -- `row` is the current grid row either way; conflict=true means the row changed after it was loaded (reload it). override_reason = Manager/Admin override for Wakala unpaid at Submit/Stamp. Users who can't edit any grid get a 403 for the whole call.",
         "x-roles": [
           "Management; the step_type's own role; Clearance Officer on assigned rows"
         ],
