@@ -269,18 +269,21 @@ def get_pending_approval_queue():
 
 @frappe.whitelist()
 def get_cost_breakdown_report(from_date=None, to_date=None, **kwargs):
-	"""Admin-only: Approved transaction totals grouped by destination_country and by the
-	clearance step_type that generated the underlying Clearance Step Payment (where
-	applicable) -- helps spot which corridor step is costing the most."""
+	"""Admin-only: Approved Expense totals by destination_country -- what each corridor costs.
+	Costs only: commissions and other income are not costs (D-17, user 2026-09-30)."""
 	_require_admin()
 	from_date, to_date = _normalize_dates(from_date, to_date, **kwargs)
-	base_filters = {"status": "Approved", "creation": ["between", _day_range(from_date, to_date)]}
+	base_filters = {
+		"status": "Approved",
+		"transaction_type": "Expense",
+		"creation": ["between", _day_range(from_date, to_date)],
+	}
 
 	by_country = {}
 	for row in frappe.get_all(
 		"Applicant Transaction",
 		filters=base_filters,
-		fields=["placement", "amount_birr", "transaction_type"],
+		fields=["placement", "amount_birr"],
 	):
 		if not row.placement:
 			continue

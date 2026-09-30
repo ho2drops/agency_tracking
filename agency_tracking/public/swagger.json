@@ -5693,7 +5693,7 @@
           "Finance"
         ],
         "summary": "Approved transaction totals grouped by destination country",
-        "description": "",
+        "description": "Approved Expense totals by destination country (by_country_birr): what each corridor costs. Commissions and other income are not counted (D-17).",
         "x-roles": [
           "Admin"
         ],
