@@ -7,6 +7,7 @@ import frappe
 
 from agency_tracking.pagination import count_rows, page_args, paged_result, require_list_permission
 from agency_tracking.contract_parser import _parse_contract, _parse_visa
+from agency_tracking.roles import MUAYENA_PLACEMENT_ROLES
 from agency_tracking.state_machine import (
 	assert_placement_not_terminal,
 	lock_applicant_row,
@@ -151,9 +152,9 @@ def create_muayena_placement(applicant_name=None, contractor_name=None, file_url
 		frappe.throw("applicant_name is required.", frappe.ValidationError)
 	if not contractor_name:
 		frappe.throw("contractor_name is required.", frappe.ValidationError)
-	applicant = frappe.get_doc("Applicant", applicant_name)
-	if not applicant.has_permission("write"):
+	if not (MUAYENA_PLACEMENT_ROLES & set(frappe.get_roles())):
 		frappe.throw("Not permitted.", frappe.PermissionError)
+	applicant = frappe.get_doc("Applicant", applicant_name)
 
 	if applicant.entry_track != "Muayena":
 		frappe.throw(
@@ -169,6 +170,10 @@ def create_muayena_placement(applicant_name=None, contractor_name=None, file_url
 		)
 	if not applicant.destination_country:
 		frappe.throw(f"{applicant_name} has no destination_country set.", frappe.ValidationError)
+	# Ban backstop (P4-11): a ban can land after registration's own check passed.
+	from agency_tracking.applicant_api import _check_country_ban_or_throw
+
+	_check_country_ban_or_throw(applicant_name, applicant.destination_country, False, None)
 
 	# Parse BEFORE taking the row lock, not after (2026-09-11 fix): real contract text
 	# extraction can be slow, and it never touches active_placement, so it must not hold this

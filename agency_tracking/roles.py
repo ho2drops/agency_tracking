@@ -49,6 +49,9 @@ INTERNAL_STAFF_ROLES = {
 	"System Manager",
 } | CLEARANCE_COUNTRY_ROLES
 
+# Internal staff who may create a Muayena placement (placement_api.create_muayena_placement).
+MUAYENA_PLACEMENT_ROLES = {REGISTRAR, MANAGER, ADMIN, CONTRACT_PARSER, "System Manager"}
+
 # Roles that see cross-cutting management reports (report_api.py's Manager-tier functions).
 MANAGEMENT_ROLES = {MANAGER, ADMIN, "Administrator", "System Manager", FINANCE_MANAGER}
 

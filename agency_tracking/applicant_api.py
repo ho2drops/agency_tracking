@@ -65,7 +65,7 @@ def _check_country_ban_or_throw(applicant_name, country, override, override_reas
 	Called from every point that can put a banned (applicant, country) pair in front of a
 	foreign agency or commit them to that country: update_applicant (on a destination_country
 	change), register_applicant, cv_api.generate_cv, restart_applicant, and as a backstop in
-	portal_api.select_candidate. portal_api.list_portal_candidates filters banned
+	portal_api.select_candidate and placement_api.create_muayena_placement. portal_api.list_portal_candidates filters banned
 	applicants out of the marketplace listing separately (a list filter, not a throw).
 
 	`action` (one of COUNTRY_BAN_ACTIONS) lets a blocked staff member retry after a Manager
