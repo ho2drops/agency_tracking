@@ -505,8 +505,9 @@ def apply_batch_write_off(batch_name, write_off_amount, write_off_reason):
 
 	write_off_amount is in the BATCH'S OWN CURRENCY (e.g. the $1000 negotiated off a $5000 USD
 	batch), matching how the agency actually negotiates and how the invoice is denominated --
-	not Birr. It's converted to Birr here (at today's rate for that currency) purely to book the
-	underlying Expense transaction, which -- like every other ledger entry -- is Birr-normalized."""
+	not Birr. It's converted to Birr at the rate the batch's still-unpaid commissions were booked at
+	(D-03, user 2026-09-30), not today's: waiving a debt moves no money, so a full write-off must net
+	the batch's Birr balance to exactly zero -- no FX gain or loss on money that never moved."""
 	if not write_off_reason:
 		frappe.throw("A reason is required to write off a batch amount.", frappe.ValidationError)
 	amount = Decimal(str(write_off_amount or 0))
@@ -526,8 +527,8 @@ def apply_batch_write_off(batch_name, write_off_amount, write_off_reason):
 	# (audit N-1). Advance is deliberately excluded -- it's a loan requested ahead, not a payment
 	# against this batch, so it doesn't count toward this ceiling (matches _apply_settlement_math).
 	# All in the batch's own currency, same as the invoice the agency is negotiating against.
-	paid_items_original, _ = batch.paid_from_items()
-	existing_write_off_original, _ = batch.write_off_totals()
+	paid_items_original, paid_items_birr = batch.paid_from_items()
+	existing_write_off_original, existing_write_off_birr = batch.write_off_totals()
 	accounted = (
 		Decimal(str(paid_items_original))
 		+ Decimal(str(existing_write_off_original))
@@ -541,8 +542,12 @@ def apply_batch_write_off(batch_name, write_off_amount, write_off_reason):
 			frappe.ValidationError,
 		)
 
-	fx_rate, fx_rate_date = get_fx_rate(batch.currency)
-	amount_birr = round(amount * Decimal(str(fx_rate)), 2)
+	# The carrying rate of what's still owed (> 0: the ceiling check above leaves at least `amount`).
+	unpaid_original = Decimal(str(batch.total_amount_original or 0)) - paid_items_original - existing_write_off_original
+	unpaid_birr = Decimal(str(batch.total_amount_birr or 0)) - paid_items_birr - existing_write_off_birr
+	fx_rate = (unpaid_birr / unpaid_original).quantize(Decimal("0.000000001"))
+	fx_rate_date = today()
+	amount_birr = round(amount * fx_rate, 2)
 
 	with sanctioned_write():  # system-created Approved ledger row (QA A1)
 		txn = frappe.get_doc(

@@ -7261,7 +7261,7 @@
           "Finance"
         ],
         "summary": "Write off an agreed discount on a batch",
-        "description": "Record an agreed discount on a commission batch (agency pays less by negotiation). Books an Expense Applicant Transaction for the shortfall and settles the batch once advance + write-off cover the total. Amounts in Birr. One write-off per batch.",
+        "description": "Record an agreed discount on a commission batch (the agency pays less by negotiation). write_off_amount is in the batch's own currency; a batch can have several write-offs, and paid items + write-offs can't exceed the total. Books an Approved Expense for it in Birr at the rate the batch's still-unpaid commissions were booked at, not today's (D-03): a full write-off nets the Birr balance to zero. The batch settles once paid items + write-offs cover the total.",
         "x-roles": [
           "Finance Manager",
           "Admin"
