@@ -166,5 +166,6 @@ def resolve_complaint(complaint_name=None, new_status=None, resolution_notes=Non
 	complaint.resolution_notes = resolution_notes
 	complaint.resolved_by = frappe.session.user
 	complaint.resolved_on = today()
-	transition(complaint, new_status, override=True, override_reason=override_reason or "QA Resolution Confirmation")
+	# P4-08: override only with the caller's own written reason (was always on, with a placeholder).
+	transition(complaint, new_status, override=bool(override_reason), override_reason=override_reason)
 	return complaint.as_dict()
