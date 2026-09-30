@@ -148,6 +148,14 @@ def update_applicant(applicant_name=None, override_ban=False, override_reason=No
 	if not doc.has_permission("write"):
 		frappe.throw("Not permitted.", frappe.PermissionError)
 	data = {k: v for k, v in data.items() if k not in APPLICANT_SYSTEM_FIELDS and k not in ("doctype", "cmd")}
+	track_changed = "entry_track" in data and data["entry_track"] != doc.entry_track
+	if track_changed and doc.active_placement:
+		# D-13: the placement was made for the old track; it has to go first.
+		frappe.throw(
+			f"{applicant_name} has an active placement ({doc.active_placement}). "
+			"Cancel it (Cancel Applicant) before changing the entry track.",
+			frappe.ValidationError,
+		)
 
 	new_country = data.get("destination_country")
 	if new_country and new_country != doc.destination_country:
@@ -158,7 +166,7 @@ def update_applicant(applicant_name=None, override_ban=False, override_reason=No
 		_check_country_ban_or_throw(applicant_name, new_country, override_ban, override_reason, action="Change Destination")
 
 	doc.update(data)
-	if "entry_track" in data and data["entry_track"] != doc.entry_track and doc.status in CYCLE_REGRESSION_STATUSES:
+	if track_changed and doc.status in CYCLE_REGRESSION_STATUSES:
 		transition(doc, "Draft")
 	else:
 		doc.save()
