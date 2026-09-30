@@ -293,6 +293,20 @@ def migrate_attach_to_r2(doc, fieldname, category, applicant_name=None):
 		content_type = mimetypes.guess_type(file_doc.file_name or "")[0]
 		r2_ref = upload_to_r2(content, key, content_type=content_type)
 		doc.set(fieldname, r2_ref)
-		frappe.delete_doc("File", file_name, ignore_permissions=True, force=True)
+		# S-18: this runs in before_save, and the save can still fail and roll back. Only the File
+		# row goes now (transactional); the disk file goes once the save commits, and a rollback
+		# removes the R2 copy nothing points at -- never a restored row without its file.
+		frappe.db.delete("File", {"name": file_name})
+		frappe.db.after_commit.add(file_doc._delete_file_on_disk)
+		frappe.db.after_rollback.add(lambda: _delete_r2_object_quietly(key))
 	except Exception:
 		frappe.log_error(title="R2 receipt migration failed", message=f"{doc.doctype} {doc.name} {fieldname}")
+
+
+def _delete_r2_object_quietly(key):
+	"""Best-effort cleanup after a rollback: an orphaned object is harmless, a raise here isn't."""
+	try:
+		client, settings = _r2_client()
+		client.delete_object(Bucket=settings.r2_bucket_name, Key=key)
+	except Exception:
+		frappe.log_error(title="R2 orphan cleanup failed", message=key)
