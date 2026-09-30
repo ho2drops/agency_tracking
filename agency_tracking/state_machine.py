@@ -196,6 +196,12 @@ ALLOWED_TRANSITIONS = {
 # Stamped->Ticketed have no gate — nothing to check against for either.
 STAGE_GATES = {}
 
+
+class NoOverride(str):
+	"""A gate's refusal that even a Manager override can't force through (e.g. medically UNFIT
+	-> CV Generated, user decision 2026-09-23). Return NoOverride("reason") instead of a plain str."""
+
+
 # (doctype, to_status) -> callable(doc). Runs once, after a transition has already committed
 # (doc.save() + Process Event logged) — orchestration, not validation; a side effect here
 # can't block the move itself (that's what STAGE_GATES is for). Keeps transition() the single
@@ -315,7 +321,7 @@ def _transition(doc, new_status, actor=None, override=False, override_reason=Non
 	is_override = bool(gate) and not gate_passed
 
 	if is_override:
-		if not override:
+		if not override or isinstance(gate_result, NoOverride):
 			# Gate functions may return a specific reason string instead of a bare False
 			# (mirrors validate_field_floor's specific field list) -- fall back to the gate
 			# function's own name/docstring when it doesn't, so the message is never fully
@@ -388,7 +394,7 @@ def cv_generation_gate(applicant):
 	# is what puts them there. cv_api.generate_cv refuses first with a clearer message; this is
 	# the backstop for any other path into CV Generated.
 	if applicant.medical_status == "UNFIT":
-		return "medically UNFIT applicants cannot have a CV generated."
+		return NoOverride("medically UNFIT applicants cannot have a CV generated.")
 	return True
 
 
