@@ -241,6 +241,9 @@ def get_contractor_default_rate(contractor_name, destination_country, entry_trac
 
 
 def accrue_commission(placement, from_status=None, actor=None):
+	if placement.status == "Cancelled":
+		# P4-14: a cancelled case earns no commission (the early trigger reached this).
+		frappe.throw(f"{placement.name} is Cancelled -- no commission.", frappe.ValidationError)
 	if placement.is_free_replacement:
 		# Part A.4: "commission fee waived for that one cycle" — already collected on the
 		# original placement this one replaces. Not an idempotency no-op; there was never
