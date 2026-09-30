@@ -341,6 +341,7 @@
   {
    "description": "Always ETB. The first non-zero value is recorded as one auto-Approved Expense (fee_type 'Ticket'); a later different value corrects that same row -- see placement_api.record_ticket_details. Corridor fees are recorded per clearance step, not here.",
    "fieldname": "ticket_cost",
+   "permlevel": 1,
    "fieldtype": "Currency",
    "label": "Ticket Cost"
   },
@@ -388,6 +389,7 @@
    "depends_on": "eval:doc.reschedule_cause == 'Internal'",
    "description": "Internal reschedules only (an airline/airport-caused one isn't billed to us). ETB; each Internal reschedule is recorded as its own auto-Approved Expense (fee_type 'Ticket (Internal Reschedule)') -- see placement_api.record_reschedule.",
    "fieldname": "reschedule_cost",
+   "permlevel": 1,
    "fieldtype": "Currency",
    "label": "Reschedule Cost"
   },
@@ -401,11 +403,13 @@
   {
    "description": "Part A.1: Muayena commission is never a default rate — always set manually per case. Standard-track placements use the Contractor's default_commission_rates instead (Part D).",
    "fieldname": "manual_commission_amount",
+   "permlevel": 2,
    "fieldtype": "Currency",
    "label": "Manual Commission Amount"
   },
   {
    "fieldname": "manual_commission_currency",
+   "permlevel": 2,
    "fieldtype": "Select",
    "label": "Manual Commission Currency",
    "options": "\nSAR\nKWD\nUSD\nETB\nAED\nQAR"
@@ -435,7 +439,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-23 19:00:00.000000",
+ "modified": "2026-09-30 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Agency Tracking",
  "name": "Placement",
@@ -531,6 +535,58 @@
   {
    "read": 1,
    "role": "Kuwait Embassy"
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "Manager",
+   "write": 1
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "Admin",
+   "write": 1
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "Finance Manager"
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "Ticketer",
+   "write": 1
+  },
+  {
+   "permlevel": 2,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "permlevel": 2,
+   "read": 1,
+   "role": "Manager",
+   "write": 1
+  },
+  {
+   "permlevel": 2,
+   "read": 1,
+   "role": "Admin",
+   "write": 1
+  },
+  {
+   "permlevel": 2,
+   "read": 1,
+   "role": "Finance Manager"
   }
  ],
  "search_fields": "applicant,contractor,destination_country,status",

@@ -53,6 +53,18 @@ PARSED_EDITABLE_FIELDS = (
 )
 
 
+def _readable(placement):
+	"""The placement as the caller may read it, like /api/resource: fields above their permlevel
+	are left out -- the money (ticket/reschedule cost, manual commission) is Finance/management
+	only, ticket costs also Ticketer (P6-07, D-18)."""
+	data = placement.as_dict()
+	readable = placement.get_permlevel_access("read")
+	for df in placement.meta.fields:
+		if df.permlevel and df.permlevel not in readable:
+			data.pop(df.fieldname, None)
+	return data
+
+
 def _linked_contractor_or_staff_write(placement):
 	"""Keyed off an actual linked Contractor record, not role membership — the special
 	Administrator user carries every role in the system, so a role-membership check alone
@@ -89,7 +101,7 @@ def upload_contract(placement_name=None, file_url=None, **kwargs):
 	placement.contract_file = file_url
 	placement.update(extracted)
 	placement.save(ignore_permissions=True)
-	return placement.as_dict()
+	return _readable(placement)
 
 
 @frappe.whitelist()
@@ -131,7 +143,7 @@ def upload_visa(placement_name=None, file_url=None, **kwargs):
 					},
 				)
 
-	return placement.as_dict()
+	return _readable(placement)
 
 
 @frappe.whitelist()
@@ -209,7 +221,7 @@ def create_muayena_placement(applicant_name=None, contractor_name=None, file_url
 	).insert(ignore_permissions=True)
 
 	frappe.db.set_value("Applicant", applicant_name, "active_placement", placement.name)
-	return placement.as_dict()
+	return _readable(placement)
 
 
 @frappe.whitelist()
@@ -237,7 +249,7 @@ def record_selected_medical_result(placement_name=None, status=None, examination
 
 		cancel_applicant_cascade(frappe.get_doc("Applicant", placement.applicant), "Medical (Selected stage) result: UNFIT.")
 
-	return placement.as_dict()
+	return _readable(placement)
 
 
 @frappe.whitelist()
@@ -266,7 +278,7 @@ def record_predeparture_medical_result(placement_name=None, status=None, examina
 
 		cancel_applicant_cascade(frappe.get_doc("Applicant", placement.applicant), "Medical (pre-departure) result: UNFIT.")
 
-	return placement.as_dict()
+	return _readable(placement)
 
 
 @frappe.whitelist()
@@ -312,11 +324,11 @@ def advance_placement(placement_name=None, new_status=None, override_reason=None
 			frappe.ValidationError,
 		)
 	if placement.status == new_status:
-		return placement.as_dict()
+		return _readable(placement)
 
-	return transition(
-		placement, new_status, override=bool(override_reason), override_reason=override_reason
-	).as_dict()
+	return _readable(
+		transition(placement, new_status, override=bool(override_reason), override_reason=override_reason)
+	)
 
 
 TICKET_FEE_TYPE = "Ticket"
@@ -409,7 +421,7 @@ def record_ticket_details(placement_name=None, ticket_number=None, flight_date=N
 	placement.ticket_cost = ticket_cost
 	placement.save(ignore_permissions=True)
 
-	result = placement.as_dict()
+	result = _readable(placement)
 	ticket_amount = flt(ticket_cost)
 	if not placement.corridor_fees_logged:
 		if ticket_amount > 0:
@@ -479,7 +491,7 @@ def record_reschedule(
 		)
 		if not warning and latest == transaction:
 			placement.db_set("reschedule_cost", reschedule_cost)
-		result = frappe.get_doc("Placement", placement_name).as_dict()
+		result = _readable(frappe.get_doc("Placement", placement_name))
 		result["reschedule_transaction"] = transaction
 		if warning:
 			result["warning"] = warning
@@ -501,7 +513,7 @@ def record_reschedule(
 		placement.ticket_number = ticket_number
 	placement.save(ignore_permissions=True)
 
-	result = placement.as_dict()
+	result = _readable(placement)
 	if reschedule_cause == "Internal":
 		result["reschedule_transaction"] = _record_ticket_expense(
 			placement,
@@ -608,7 +620,7 @@ def update_placement_parsed_fields(placement_name=None, **data):
 		)
 	placement.update(updates)
 	placement.save(ignore_permissions=True)
-	return placement.as_dict()
+	return _readable(placement)
 
 
 @frappe.whitelist()
@@ -621,4 +633,4 @@ def get_placement(placement_name=None, **kwargs):
 	doc = frappe.get_doc("Placement", placement_name)
 	if not doc.has_permission("read"):
 		frappe.throw("Not permitted.", frappe.PermissionError)
-	return doc.as_dict()
+	return _readable(doc)
