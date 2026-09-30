@@ -155,8 +155,6 @@ def resolve_complaint(complaint_name=None, new_status=None, resolution_notes=Non
 		frappe.throw("A valid complaint_name is required.", frappe.ValidationError)
 	if new_status not in TERMINAL_STATUSES:
 		frappe.throw(f"'{new_status}' is not a resolution outcome.", frappe.ValidationError)
-	if new_status == "Dismissed" and not resolution_notes:
-		frappe.throw("A written reason is required to dismiss a complaint.", frappe.ValidationError)
 
 	complaint = frappe.get_doc("Complaint", complaint_name)
 	if complaint.status == new_status:
