@@ -94,6 +94,7 @@ class Applicant(Document):
 		self.set_full_name()
 		self.validate_passport_dates()
 		self.validate_field_floor()
+		self.validate_corridor()
 		self.validate_uniqueness()
 
 	def validate_passport_dates(self):
@@ -244,6 +245,20 @@ class Applicant(Document):
 				"{0} track, {1} status requires: {2}".format(
 					self.entry_track, self.status, ", ".join(missing)
 				),
+				frappe.ValidationError,
+			)
+
+	def validate_corridor(self):
+		"""D-14: a destination with no clearance corridor would leave the case in Processing with no
+		steps, so it's refused on the way into Registered and on a later change of destination."""
+		entering_registered = self.status == "Registered" and self.has_value_changed("status")
+		destination_moved = self.status not in ("Draft", "Cancelled") and self.has_value_changed("destination_country")
+		if not self.destination_country or not (entering_registered or destination_moved):
+			return
+		if not frappe.db.exists("Corridor Definition", {"destination_country": self.destination_country}):
+			frappe.throw(
+				f"No clearance corridor is set up for {self.destination_country}. "
+				"Pick another destination, or ask a Manager to add the corridor first.",
 				frappe.ValidationError,
 			)
 
