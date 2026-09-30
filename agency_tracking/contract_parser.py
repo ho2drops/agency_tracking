@@ -10,7 +10,7 @@ import decimal
 import frappe
 from frappe.utils import getdate
 
-from agency_tracking.roles import INTERNAL_STAFF_ROLES
+from agency_tracking.roles import INTERNAL_STAFF_ROLES, require_internal_staff
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Unicode & Arabic Normalization Helpers
@@ -724,8 +724,7 @@ def enqueue_parse_contract_file(file_url=None, destination_country=None, **kwarg
 	Gated to internal staff; the job runs as the requester, so the file-read check still applies."""
 	if not file_url:
 		frappe.throw("file_url is required.", frappe.ValidationError)
-	if frappe.session.user != "Administrator" and not (INTERNAL_STAFF_ROLES & set(frappe.get_roles())):
-		frappe.throw("Not permitted.", frappe.PermissionError)
+	require_internal_staff()
 
 	from agency_tracking.background_jobs import enqueue_job
 
@@ -747,8 +746,7 @@ def enqueue_parse_visa_file(file_url=None, **kwargs):
 	internal staff; the job runs as the requester, so the file-read check still applies."""
 	if not file_url:
 		frappe.throw("file_url is required.", frappe.ValidationError)
-	if frappe.session.user != "Administrator" and not (INTERNAL_STAFF_ROLES & set(frappe.get_roles())):
-		frappe.throw("Not permitted.", frappe.PermissionError)
+	require_internal_staff()
 
 	from agency_tracking.background_jobs import enqueue_job
 

@@ -1415,10 +1415,9 @@ def parse_passport_file(file_url: str = None, **kwargs) -> dict:
 	"""Whitelisted endpoint to parse an uploaded passport scan. Internal staff only (audit G-004:
 	was ungated) and it resolves ONLY a real uploaded File record -- it never treats the argument
 	as a raw filesystem path, closing the arbitrary-local-file-read hole."""
-	from agency_tracking.roles import INTERNAL_STAFF_ROLES
+	from agency_tracking.roles import require_internal_staff
 
-	if frappe.session.user != "Administrator" and not (INTERNAL_STAFF_ROLES & set(frappe.get_roles())):
-		frappe.throw("Not permitted.", frappe.PermissionError)
+	require_internal_staff()
 	file_doc = frappe.db.get_value("File", {"file_url": file_url}, "name")
 	if not file_doc:
 		frappe.throw("A valid uploaded File is required.", frappe.ValidationError)
@@ -1431,10 +1430,9 @@ def enqueue_parse_passport_file(file_url: str = None, **kwargs):
 	"""Async twin of parse_passport_file -- same permission gate and File-resolution check, but
 	returns a Background Job reference immediately instead of blocking on the OCR. Poll
 	background_jobs.get_job_status(job) for the result."""
-	from agency_tracking.roles import INTERNAL_STAFF_ROLES
+	from agency_tracking.roles import require_internal_staff
 
-	if frappe.session.user != "Administrator" and not (INTERNAL_STAFF_ROLES & set(frappe.get_roles())):
-		frappe.throw("Not permitted.", frappe.PermissionError)
+	require_internal_staff()
 	file_doc = frappe.db.get_value("File", {"file_url": file_url}, "name")
 	if not file_doc:
 		frappe.throw("A valid uploaded File is required.", frappe.ValidationError)

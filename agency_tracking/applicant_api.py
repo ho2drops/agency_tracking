@@ -172,12 +172,11 @@ def log_applicant_fee(applicant_name=None):
 	this endpoint at all. Kept as its own whitelisted call (rather than folding into
 	update_applicant) so the button can carry its own explicit permission + friendly
 	already-logged error, matching the other single-purpose action endpoints in this module."""
-	from agency_tracking.roles import INTERNAL_STAFF_ROLES
+	from agency_tracking.roles import require_internal_staff
 
 	if not applicant_name:
 		frappe.throw("applicant_name is required.", frappe.ValidationError)
-	if not (INTERNAL_STAFF_ROLES & set(frappe.get_roles())):
-		frappe.throw("Not permitted.", frappe.PermissionError)
+	require_internal_staff()
 
 	doc = frappe.get_doc("Applicant", applicant_name)
 	if not doc.fee_required or not doc.registration_fee_amount:

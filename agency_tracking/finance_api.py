@@ -22,7 +22,7 @@ from agency_tracking.finance_engine import (
 	settle_batch_request,
 )
 from agency_tracking.pagination import count_rows, page_args, paged_result
-from agency_tracking.roles import INTERNAL_STAFF_ROLES
+from agency_tracking.roles import require_internal_staff
 from agency_tracking.state_machine import log_action, transition
 from decimal import Decimal
 
@@ -55,8 +55,7 @@ def _log_stage_transaction(
 	"""2026-08-29: open to any internal staff role, no longer gated on being assigned to the
 	placement's current stage — Finance Manager/Admin approval (approve_transaction/
 	reject_transaction) is the real gate now, so the write side can be permissive."""
-	if not (INTERNAL_STAFF_ROLES & set(frappe.get_roles())):
-		frappe.throw("Not permitted.", frappe.PermissionError)
+	require_internal_staff()
 	amount = _positive_decimal(amount, "amount")
 
 	placement = frappe.get_doc("Placement", placement_name) if placement_name else None

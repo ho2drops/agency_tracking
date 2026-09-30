@@ -17,7 +17,7 @@ from decimal import Decimal
 import frappe
 from frappe.utils import flt, getdate
 
-from agency_tracking.roles import INTERNAL_STAFF_ROLES
+from agency_tracking.roles import require_internal_staff
 
 MANAGEMENT_ROLES = {"Manager", "Admin", "Finance Manager", "System Manager"}
 
@@ -862,8 +862,7 @@ def export_group_schedule_bio_xlsx(applicants=None):
 	list, or a single Applicant name. (The endpoint keeps its original `_xlsx` name so existing
 	callers don't break.)
 	"""
-	if not (INTERNAL_STAFF_ROLES & set(frappe.get_roles())):
-		frappe.throw("Not permitted.", frappe.PermissionError)
+	require_internal_staff()
 
 	if isinstance(applicants, str):
 		applicants = frappe.parse_json(applicants) if applicants.strip().startswith("[") else [applicants]

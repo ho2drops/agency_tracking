@@ -11,7 +11,7 @@ from agency_tracking.clearance_engine import _broadcast_todo_to_role_holders
 from agency_tracking.pagination import require_list_permission
 from agency_tracking.agency_tracking.doctype.clearance_step.clearance_step import CLEARANCE_ROLE_BY_STEP_TYPE
 from agency_tracking.pdf_utils import asset_datauri, code128_b_datauri, embed_image_datauri, render_pdf
-from agency_tracking.roles import INTERNAL_STAFF_ROLES
+from agency_tracking.roles import require_internal_staff
 from agency_tracking.state_machine import (
 	assert_clearance_step_not_terminal,
 	auto_advance_placement_if_ready,
@@ -932,8 +932,7 @@ def render_injaz_pdf(clearance_step_name=None, **kwargs):
 	if not clearance_step_name:
 		frappe.throw("clearance_step_name is required.", frappe.ValidationError)
 
-	if frappe.session.user != "Administrator" and not (INTERNAL_STAFF_ROLES & set(frappe.get_roles())):
-		frappe.throw("Not permitted.", frappe.PermissionError)
+	require_internal_staff()
 
 	pdf_bytes, filename = _build_injaz_pdf(clearance_step_name)
 	frappe.response["filename"] = filename
@@ -949,8 +948,7 @@ def enqueue_render_injaz_pdf(clearance_step_name=None, **kwargs):
 	clearance_step_name = clearance_step_name or kwargs.get("name") or kwargs.get("step_name")
 	if not clearance_step_name:
 		frappe.throw("clearance_step_name is required.", frappe.ValidationError)
-	if frappe.session.user != "Administrator" and not (INTERNAL_STAFF_ROLES & set(frappe.get_roles())):
-		frappe.throw("Not permitted.", frappe.PermissionError)
+	require_internal_staff()
 	if not frappe.db.exists("Clearance Step", clearance_step_name):
 		frappe.throw(f"Clearance Step {clearance_step_name} not found.", frappe.DoesNotExistError)
 

@@ -146,10 +146,9 @@ def list_employee_roster():
 	frappe.client.get PER USER on the User doctype directly, found live -- that path had no role
 	gate at all (Frappe's own default User read permission let any Desk User, i.e. any employee,
 	reach it), returned full User documents, and was an N+1 query besides."""
-	from agency_tracking.roles import INTERNAL_STAFF_ROLES
+	from agency_tracking.roles import require_internal_staff
 
-	if frappe.session.user != "Administrator" and not (INTERNAL_STAFF_ROLES & set(frappe.get_roles())):
-		frappe.throw("Not permitted.", frappe.PermissionError)
+	require_internal_staff()
 
 	users = frappe.get_all(
 		"User",

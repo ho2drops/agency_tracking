@@ -6,7 +6,7 @@
 import frappe
 
 from agency_tracking.pdf_utils import embed_image_datauri, render_pdf
-from agency_tracking.roles import INTERNAL_STAFF_ROLES
+from agency_tracking.roles import require_internal_staff
 from agency_tracking.state_machine import transition
 
 CV_TEMPLATE = "templates/cv_template.html"
@@ -174,8 +174,7 @@ def generate_cv(applicant_name=None, override_ban=False, override_reason=None, *
 def render_cv_pdf(applicant_name=None, **kwargs):
 	# Internal staff only (audit G-003): the CV PDF carries passport/photo PII, so it must not be
 	# pullable by any authenticated user (incl. foreign agencies) for an arbitrary applicant id.
-	if frappe.session.user != "Administrator" and not (INTERNAL_STAFF_ROLES & set(frappe.get_roles())):
-		frappe.throw("Not permitted.", frappe.PermissionError)
+	require_internal_staff()
 	applicant_name = applicant_name or kwargs.get("name") or kwargs.get("applicant")
 	if not applicant_name:
 		frappe.throw("applicant_name is required.", frappe.ValidationError)
@@ -197,8 +196,7 @@ def enqueue_render_cv_pdf(applicant_name=None, **kwargs):
 	"""Async twin of render_cv_pdf -- same param resolution and permission gate, but returns a
 	Background Job reference immediately instead of blocking on the render. Poll
 	background_jobs.get_job_status(job) for the result."""
-	if frappe.session.user != "Administrator" and not (INTERNAL_STAFF_ROLES & set(frappe.get_roles())):
-		frappe.throw("Not permitted.", frappe.PermissionError)
+	require_internal_staff()
 	applicant_name = applicant_name or kwargs.get("name") or kwargs.get("applicant")
 	if not applicant_name:
 		frappe.throw("applicant_name is required.", frappe.ValidationError)

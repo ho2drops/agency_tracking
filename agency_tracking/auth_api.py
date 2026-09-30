@@ -12,7 +12,7 @@
 import frappe
 
 from agency_tracking.install import ROLES as APP_ROLES
-from agency_tracking.roles import INTERNAL_STAFF_ROLES, MANAGEMENT_ROLES
+from agency_tracking.roles import MANAGEMENT_ROLES, is_internal_staff
 
 
 @frappe.whitelist(allow_guest=True)
@@ -33,7 +33,7 @@ def get_current_user():
 	if user == "Guest":
 		return None
 	raw_roles = set(frappe.get_roles(user))
-	is_internal_staff = user == "Administrator" or bool(INTERNAL_STAFF_ROLES & raw_roles)
+	staff = is_internal_staff(user)
 
 	# Only expose THIS app's own roles -- never Frappe's ~30 built-ins (All, Guest, Desk User,
 	# Website Manager, Blogger, ...), which are noise to the UI. And an admin / super-user holds
@@ -50,7 +50,7 @@ def get_current_user():
 		"full_name": frappe.db.get_value("User", user, "full_name"),
 		"roles": roles,
 		"contractor": contractor,
-		"is_internal_staff": is_internal_staff,
+		"is_internal_staff": staff,
 	}
 
 
