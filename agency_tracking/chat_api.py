@@ -16,6 +16,7 @@ from agency_tracking.chat_engine import (
 	is_participant,
 	validate_thread_participants,
 )
+from agency_tracking.roles import require_internal_staff
 
 
 def _linked_contractor(user):
@@ -65,6 +66,7 @@ def create_internal_thread(other_user=None, context_type="General", context_refe
 		frappe.throw(
 			"Agencies use create_agency_thread(), not create_internal_thread().", frappe.PermissionError
 		)
+	require_internal_staff()
 	thread = get_or_create_internal_thread(frappe.session.user, other_user, context_type, context_reference)
 	return thread.as_dict()
 

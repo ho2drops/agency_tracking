@@ -7,7 +7,7 @@ import frappe
 from frappe.utils import today
 
 from agency_tracking.pagination import count_rows, page_args, paged_result
-from agency_tracking.roles import INTERNAL_STAFF_ROLES
+from agency_tracking.roles import is_internal_staff
 from agency_tracking.state_machine import transition
 
 TERMINAL_STATUSES = {"Resolved", "Returned - Free Replacement Required", "Escalated", "Dismissed"}
@@ -18,7 +18,7 @@ def create_complaint(placement=None, description=None, worker_status_at_complain
 	"""business-workflow-srs.md Part 5: "Foreign agencies (or occasionally internal staff on
 	their behalf) can log a complaint against any worker." An agency can only complain about
 	their own placement; internal staff need some recognized staff role, but creation itself
-	isn't restricted the way resolution is."""
+	isn't restricted the way resolution is. Anyone else is refused (S-13)."""
 	placement = placement or kwargs.get("placement_name")
 	applicant = kwargs.get("applicant") or kwargs.get("applicant_name")
 	if placement and not frappe.db.exists("Placement", placement) and frappe.db.exists("Applicant", placement):
@@ -48,10 +48,10 @@ def create_complaint(placement=None, description=None, worker_status_at_complain
 		if linked_contractor != placement_doc.contractor:
 			frappe.throw("Not permitted.", frappe.PermissionError)
 		raised_by = "Foreign Agency"
-	elif frappe.session.user == "Administrator" or (INTERNAL_STAFF_ROLES | {"System Manager"}) & set(frappe.get_roles()):
+	elif is_internal_staff():
 		raised_by = "Internal Staff"
 	else:
-		raised_by = "Foreign Agency"
+		frappe.throw("Not permitted.", frappe.PermissionError)
 
 	complaint = frappe.get_doc(
 		{

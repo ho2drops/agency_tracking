@@ -8,6 +8,8 @@
 # referencing Frappe's full role list, and a shared source for the common role-set groupings
 # that were previously scattered as ad-hoc {...} literals across the API modules.
 
+import frappe
+
 REGISTRAR = "Registrar"
 MANAGER = "Manager"
 ADMIN = "Admin"
@@ -49,3 +51,14 @@ INTERNAL_STAFF_ROLES = {
 
 # Roles that see cross-cutting management reports (report_api.py's Manager-tier functions).
 MANAGEMENT_ROLES = {MANAGER, ADMIN, "Administrator", "System Manager", FINANCE_MANAGER}
+
+
+def is_internal_staff(user=None):
+	"""True when the user holds any INTERNAL_STAFF_ROLES role (Administrator holds every role)."""
+	return bool(INTERNAL_STAFF_ROLES & set(frappe.get_roles(user)))
+
+
+def require_internal_staff():
+	"""Refuse the current session user unless they are internal staff."""
+	if not is_internal_staff():
+		frappe.throw("Not permitted.", frappe.PermissionError)
