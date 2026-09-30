@@ -8,6 +8,10 @@ from agency_tracking.state_machine import guard_status_write
 
 
 class Placement(Document):
+	def before_insert(self):
+		# P4-13: a placement belongs to the applicant's current cycle (was always the JSON default 1).
+		self.cycle_number = frappe.db.get_value("Applicant", self.applicant, "cycle_number") or 1
+
 	def validate(self):
 		guard_status_write(self, ("Selected",))  # QA A1: status only via the app's actions
 		self.stamp_departed_on()
