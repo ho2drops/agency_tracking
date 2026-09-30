@@ -506,25 +506,54 @@ AUTO_ADVANCE_REMARKS = "Auto-advanced: all mandatory Clearance Steps are complet
 def auto_advance_placement_if_ready(placement_name):
 	"""Best-effort: never raises into the caller. The Clearance Step that triggered this call
 	already saved successfully -- a failure here should be logged for a Manager to advance by
-	hand, not unwind real work that already happened."""
+	hand, not unwind real work that already happened.
+
+	If it doesn't advance now, it checks once more after this request commits: two last steps
+	saved at the same moment each read the other as still open on their own snapshot, so
+	neither advanced (QA test_44). The later commit's re-check sees both done."""
+	if not _advance_if_ready(placement_name):
+		frappe.db.after_commit.add(lambda: _recheck_after_commit(placement_name))
+
+
+def _recheck_after_commit(placement_name):
+	"""Runs in a fresh transaction. The Placement row lock comes first so two re-checks run one
+	after the other and the second sees the first's Stamped (no double advance)."""
+	try:
+		frappe.db.get_value("Placement", placement_name, "status", for_update=True)
+		_advance_if_ready(placement_name)
+		frappe.db.commit()
+	except Exception:
+		frappe.db.rollback()
+		frappe.log_error(
+			title="Auto-advance re-check after commit failed",
+			message=f"{placement_name}: {frappe.get_traceback()}",
+		)
+		frappe.db.commit()  # the request already committed; keep the log
+
+
+def _advance_if_ready(placement_name):
+	"""Processing -> Stamped when every mandatory step is done. True when the placement is past
+	Processing (advanced now or already), False otherwise."""
 	try:
 		placement = frappe.get_doc("Placement", placement_name)
 		if placement.status != "Processing":
-			return
+			return True
 		if all_mandatory_clearance_steps_complete(placement) is not True:
-			return
+			return False
 		# ignore_permissions=True: the officer who happened to complete the last mandatory step
 		# (e.g. Taeshir) isn't necessarily who Placement-write permission would be checked
 		# against -- this is a system-driven consequence of their action, not their own edit.
 		transition(
 			placement, "Stamped", actor=AUTO_ADVANCE_ACTOR, remarks=AUTO_ADVANCE_REMARKS, ignore_permissions=True
 		)
+		return True
 	except Exception as exc:
 		reraise_if_db_abort(exc)
 		frappe.log_error(
 			title="Auto-advance Processing->Stamped failed",
 			message=f"{placement_name}: {frappe.get_traceback()}",
 		)
+		return True  # logged for a Manager to advance by hand; re-checking would only repeat it
 
 
 # --- Ticket-recorded gate (2026-08-30, backend-issues #05) ---
