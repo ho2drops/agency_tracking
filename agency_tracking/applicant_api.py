@@ -10,7 +10,7 @@ import frappe
 
 from agency_tracking.clearance_engine import close_open_todos
 from agency_tracking.pagination import count_rows, page_args, paged_result, require_list_permission
-from agency_tracking.state_machine import LIFECYCLE_FIELDS, transition
+from agency_tracking.state_machine import LIFECYCLE_FIELDS, log_action, transition
 
 CYCLE_REGRESSION_STATUSES = ("Registered", "CV Generated")
 
@@ -264,12 +264,16 @@ def cancel_applicant_cascade(doc, reason):
 	if doc.active_placement:
 		placement = frappe.get_doc("Placement", doc.active_placement)
 		transition(placement, "Cancelled", remarks=reason, ignore_permissions=True)
+		steps = frappe.get_all("Clearance Step", {"placement": placement.name}, ["name", "status"])
 		frappe.db.set_value(
 			"Clearance Step", {"placement": placement.name}, "status", "Cancelled"
 		)
+		# S-15: the bulk write above skips each step's own history, so record it per step.
+		for step in steps:
+			log_action("Clearance Step", step.name, f"Cancelled with the case (was {step.status}): {reason}")
 		# P4-15: nobody keeps a task on a dead case.
 		close_open_todos("Placement", placement.name)
-		close_open_todos("Clearance Step", frappe.get_all("Clearance Step", {"placement": placement.name}, pluck="name"))
+		close_open_todos("Clearance Step", [step.name for step in steps])
 		doc.active_placement = None
 
 	transition(doc, "Cancelled", remarks=reason, ignore_permissions=True)
