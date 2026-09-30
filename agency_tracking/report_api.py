@@ -228,10 +228,15 @@ def get_financial_overview(from_date=None, to_date=None, **kwargs):
 		)
 		totals[transaction_type.lower()] = _money_sum(r.amount_birr for r in rows)
 
-	owed_rows = frappe.get_all(
+	# Money agencies still owe (D-02, user 2026-09-30): commissions not yet invoiced, plus what is
+	# still unpaid on every invoice that isn't Settled -- invoicing a debt doesn't pay it.
+	not_invoiced = frappe.get_all(
 		"Applicant Transaction",
 		filters={"transaction_type": "Commission", "status": "Approved", "commission_batch_request": ["is", "not set"]},
-		fields=["amount_birr"],
+		pluck="amount_birr",
+	)
+	unpaid_on_invoices = frappe.get_all(
+		"Commission Batch Request", filters={"status": ["!=", "Settled"]}, pluck="balance_due_birr"
 	)
 	settled_batches = frappe.get_all(
 		"Commission Batch Request",
@@ -243,7 +248,7 @@ def get_financial_overview(from_date=None, to_date=None, **kwargs):
 		"from_date": from_date,
 		"to_date": to_date,
 		"totals_birr": totals,
-		"outstanding_owed_birr": _money_sum(r.amount_birr for r in owed_rows),
+		"outstanding_owed_birr": _money_sum(not_invoiced + unpaid_on_invoices),
 		"settled_in_period_birr": _money_sum(r.total_amount_birr for r in settled_batches),
 		"awaiting_fx": _awaiting_fx_summary(base_filters),
 	}
