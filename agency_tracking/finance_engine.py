@@ -10,6 +10,7 @@ import frappe
 from frappe.utils import today
 from decimal import Decimal
 
+from agency_tracking.db_errors import reraise_if_db_abort
 from agency_tracking.state_machine import TRANSITION_SIDE_EFFECTS, lock_doc_row, log_action, sanctioned_write
 
 
@@ -256,7 +257,11 @@ def accrue_commission(placement, from_status=None, actor=None):
 		return None  # idempotency guard — already accrued, early-trigger or Departed alike
 
 	amount, currency = get_commission_rate(placement)
-	fx_rate, fx_rate_date = get_fx_rate(currency)
+	# No FX rate yet: recorded in its own currency, awaiting the rate (converted by
+	# convert_awaiting_fx when one is recorded), like stage fees -- P4-09 / D-07.
+	fx_rate, fx_rate_date = get_fx_rate_or_none(currency)
+	awaiting_fx = fx_rate is None
+	fx_rate = Decimal("0") if awaiting_fx else Decimal(str(fx_rate))
 	with sanctioned_write():  # system-created Approved ledger row (QA A1)
 		txn = frappe.get_doc(
 			{
@@ -265,9 +270,10 @@ def accrue_commission(placement, from_status=None, actor=None):
 				"transaction_type": "Commission",
 				"amount_original": Decimal(str(amount)),
 				"currency_original": currency,
-				"fx_rate": Decimal(str(fx_rate)),
+				"fx_rate": fx_rate,
 				"fx_rate_date": fx_rate_date,
-				"amount_birr": round(Decimal(str(amount)) * Decimal(str(fx_rate)), 2),
+				"amount_birr": round(Decimal(str(amount)) * fx_rate, 2),
+				"awaiting_fx_rate": 1 if awaiting_fx else 0,
 				"stage_logged_at": placement.status,
 				"logged_by": actor or frappe.session.user,
 				# System-computed, not a discretionary staff entry -- auto-Approved, skips the
@@ -294,6 +300,8 @@ def _owed_commission_filters(contractor_name, destination_country, currency=None
 		"transaction_type": "Commission",
 		"status": "Approved",
 		"commission_batch_request": ["is", "not set"],
+		# Invoiced only once it has its FX rate: the batch's Birr totals are fixed when it's built.
+		"awaiting_fx_rate": 0,
 	}
 	if currency:
 		filters["currency_original"] = currency
@@ -476,6 +484,14 @@ def create_batch_request(
 		return batch
 
 	_lock_and_verify_unclaimed(transaction_names)
+	awaiting = frappe.get_all(
+		"Applicant Transaction", {"name": ["in", list(transaction_names)], "awaiting_fx_rate": 1}, pluck="name"
+	)
+	if awaiting:
+		frappe.throw(
+			f"Still waiting for an FX rate, so not invoiceable yet: {', '.join(sorted(awaiting))}.",
+			frappe.ValidationError,
+		)
 	batch_currency = _single_currency_of(transaction_names)
 	batch = frappe.get_doc(
 		{
@@ -892,16 +908,27 @@ def _on_placement_departed(placement, from_status=None):
 	and swallowed by transition()'s own outer try/except (real failures need a human to notice
 	and resolve manually, per its comment above), and departure confirmation closing its own task
 	shouldn't start depending on billing having gone through cleanly."""
-	from agency_tracking.clearance_engine import _close_placement_todos
+	from agency_tracking.clearance_engine import _close_placement_todos, _placement_label, _placement_todo_to_role
 
 	try:
 		accrue_commission(placement, from_status=from_status)
-	except Exception:
+		failure = None
+	except Exception as exc:
+		reraise_if_db_abort(exc)
+		failure = str(exc)
 		frappe.log_error(
 			title="accrue_commission failed on Departed",
 			message=f"{placement.name}: {frappe.get_traceback()}",
 		)
 	_close_placement_todos(placement.name)
+	if failure:
+		# P4-09 / D-07: the case departs, and Finance gets a task it can see (after the close above).
+		_placement_todo_to_role(
+			placement,
+			"Finance Manager",
+			f"Departed with no commission: {_placement_label(placement.name)}. {failure} "
+			"Fix it, then record the commission (trigger_early_commission_accrual).",
+		)
 
 
 TRANSITION_SIDE_EFFECTS[("Placement", "Departed")] = _on_placement_departed

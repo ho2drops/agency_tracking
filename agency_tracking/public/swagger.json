@@ -2995,7 +2995,7 @@
           "Finance"
         ],
         "summary": "Batch a contractor's owed commissions for settlement",
-        "description": "Batches a contractor's owed commissions (one currency per batch) into a new Commission Batch Request. transaction_names selects which owed commissions to include; omit it to batch everything currently owed for the contractor/country (pass currency too if that pool spans more than one). include_unpaid_from_previous (2026-09-12, \"include unpaid from previous\") additionally folds in any still-unpaid items sitting in this contractor's other open batches (Sent/Partially Settled) in the same currency, releasing them from their old batch and making them real, per-item-trackable line items on this new one -- not just a cosmetic number on the printed invoice.",
+        "description": "Batches a contractor's owed commissions (one currency per batch) into a new Commission Batch Request. transaction_names selects which owed commissions to include; omit it to batch everything currently owed for the contractor/country (pass currency too if that pool spans more than one). include_unpaid_from_previous (2026-09-12, \"include unpaid from previous\") additionally folds in any still-unpaid items sitting in this contractor's other open batches (Sent/Partially Settled) in the same currency, releasing them from their old batch and making them real, per-item-trackable line items on this new one -- not just a cosmetic number on the printed invoice. A commission still awaiting its FX rate (awaiting_fx_rate=1) isn't owed-for-invoicing yet: it's left out of the automatic pool and refused (417) if named, until a rate is recorded (P4-09).",
         "x-roles": [
           "Finance Manager",
           "Admin"
@@ -3799,7 +3799,7 @@
           "Finance"
         ],
         "summary": "Manually trigger commission accrual early",
-        "description": "For cases needing to bill sooner than Departed. Idempotency-guarded -- calling this then later reaching Departed naturally is a no-op the second time.",
+        "description": "For cases needing to bill sooner than Departed. Idempotency-guarded -- calling this then later reaching Departed naturally is a no-op the second time. Also the way Finance records a commission after a departure that had none (a Finance Manager ToDo says so; fix the rate first). With no FX rate yet, the commission is recorded awaiting FX (P4-09).",
         "x-roles": [
           "Finance Manager",
           "Admin",
@@ -4521,7 +4521,7 @@
           "Placement"
         ],
         "summary": "Move a Placement forward via the sanctioned transition() path",
-        "description": "The direct/manual advance. override_reason attempts a Manager Override if the move is gate-blocked. Refuses new_status='Cancelled': cancel through applicant_api.cancel_applicant (reason + freezes applicant, placement and steps). Moving to Processing creates every clearance step of the destination's corridor or none: it is refused (417, placement stays Selected) if the corridor has no mandatory step or a step can't be created. Stamped needs every mandatory corridor step done, including any whose row is missing.",
+        "description": "The direct/manual advance. override_reason attempts a Manager Override if the move is gate-blocked. Refuses new_status='Cancelled': cancel through applicant_api.cancel_applicant (reason + freezes applicant, placement and steps). Moving to Processing creates every clearance step of the destination's corridor or none: it is refused (417, placement stays Selected) if the corridor has no mandatory step or a step can't be created. Stamped needs every mandatory corridor step done, including any whose row is missing. Departed always records the commission: with no FX rate it is recorded awaiting FX; if it can't be computed at all (e.g. no commission rate) the case still departs and every Finance Manager gets a ToDo (D-07).",
         "x-roles": [
           "Write access to the Placement",
           "Manager/Admin required for any override"
