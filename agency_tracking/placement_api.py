@@ -275,6 +275,9 @@ def advance_placement(placement_name=None, new_status=None, override_reason=None
 	state_machine.auto_advance_placement_if_ready() once every mandatory Clearance Step is
 	done, so a caller here may find the placement already at new_status by the time they ask
 	(idempotent no-op below), not just already-in-that-state from a repeated click.
+
+	Cancelling isn't a lifecycle move here (P4-06): the Placement -> Cancelled edges exist for
+	applicant_api.cancel_applicant's cascade, which also freezes the steps and the applicant.
 	"""
 	placement_name = placement_name or kwargs.get("placement") or kwargs.get("name")
 	new_status = new_status or kwargs.get("status") or kwargs.get("target_status")
@@ -297,6 +300,12 @@ def advance_placement(placement_name=None, new_status=None, override_reason=None
 	):
 		frappe.throw("Not permitted.", frappe.PermissionError)
 
+	if new_status == "Cancelled":
+		frappe.throw(
+			"Cancel through Cancel Applicant -- it needs a reason and freezes the applicant, "
+			"placement and steps together.",
+			frappe.ValidationError,
+		)
 	if placement.status == new_status:
 		return placement.as_dict()
 
