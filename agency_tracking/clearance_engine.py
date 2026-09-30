@@ -10,8 +10,9 @@
 import frappe
 
 from agency_tracking.corridor_engine import get_corridor_steps
+from agency_tracking.db_errors import reraise_if_db_abort
 from agency_tracking.notification_engine import notify
-from agency_tracking.state_machine import TRANSITION_SIDE_EFFECTS
+from agency_tracking.state_machine import REQUIRED_SIDE_EFFECTS, TRANSITION_SIDE_EFFECTS
 
 # Step types considered part of the "LMIS family" across corridors — matched by prefix rather
 # than an exact-name list per corridor, consistent with Part A.3's "common step types are
@@ -82,14 +83,15 @@ def _broadcast_todo_to_role_holders(clearance_step_name, role):
 
 def create_clearance_steps(placement, from_status=None):
 	"""Placement enters Processing (Part A.2 Stage 5): materialize one Clearance Step per
-	Corridor Step for this destination, in order. Notification routing: the six country+step
-	roles (see clearance_step.CLEARANCE_ROLE_BY_STEP_TYPE) get a broadcast ToDo to every
-	holder; anything else falls back to the legacy single Step Officer Mapping default_officer
-	if one's configured."""
-	from agency_tracking.agency_tracking.doctype.clearance_step.clearance_step import CLEARANCE_ROLE_BY_STEP_TYPE
-
-	for step in get_corridor_steps(placement.destination_country):
-		clearance_step = frappe.get_doc(
+	Corridor Step for this destination, in order. Part of the move itself (REQUIRED_SIDE_EFFECTS):
+	the corridor is checked first, then every step is inserted, and only then are officers
+	notified -- a failed notification never costs a step, and a failed insert undoes the move
+	(QA P4-04). Notification routing: the six country+step roles (see
+	clearance_step.CLEARANCE_ROLE_BY_STEP_TYPE) get a broadcast ToDo to every holder; anything
+	else falls back to the legacy single Step Officer Mapping default_officer if one's configured."""
+	steps = _corridor_steps_or_throw(placement.destination_country)
+	created = [
+		frappe.get_doc(
 			{
 				"doctype": "Clearance Step",
 				"placement": placement.name,
@@ -99,17 +101,46 @@ def create_clearance_steps(placement, from_status=None):
 				"status": "Pending",
 			}
 		).insert(ignore_permissions=True)
+		for step in steps
+	]
+	for clearance_step in created:
+		_notify_step_officers(clearance_step)
 
-		role = CLEARANCE_ROLE_BY_STEP_TYPE.get(step["step_type"])
+
+def _corridor_steps_or_throw(destination_country):
+	"""The destination's corridor steps, checked before any is created: a corridor with no
+	mandatory step would let the case reach Stamped having cleared nothing."""
+	steps = get_corridor_steps(destination_country)  # refuses a destination with no corridor
+	if not any(step["is_mandatory"] for step in steps):
+		frappe.throw(
+			f"The {destination_country} corridor has no mandatory clearance steps. "
+			"Fix its Corridor Definition before moving a case to Processing.",
+			frappe.ValidationError,
+		)
+	return steps
+
+
+def _notify_step_officers(clearance_step):
+	"""Best-effort: the step already exists and shows in its officers' lists by role, so a
+	failed ToDo/notification is logged, not raised."""
+	from agency_tracking.agency_tracking.doctype.clearance_step.clearance_step import CLEARANCE_ROLE_BY_STEP_TYPE
+
+	try:
+		role = CLEARANCE_ROLE_BY_STEP_TYPE.get(clearance_step.step_type)
 		if role:
 			_broadcast_todo_to_role_holders(clearance_step.name, role)
-			continue
-
+			return
 		default_officer = frappe.db.get_value(
-			"Step Officer Mapping", {"step_type": step["step_type"]}, "default_officer"
+			"Step Officer Mapping", {"step_type": clearance_step.step_type}, "default_officer"
 		)
 		if default_officer:
 			assign_clearance_step(clearance_step.name, default_officer)
+	except Exception as exc:
+		reraise_if_db_abort(exc)
+		frappe.log_error(
+			title="Clearance step notification failed",
+			message=f"{clearance_step.name}: {frappe.get_traceback()}",
+		)
 
 
 def get_lmis_officer(placement):
@@ -221,5 +252,6 @@ def notify_departure_due(placement, from_status=None):
 
 
 TRANSITION_SIDE_EFFECTS[("Placement", "Processing")] = create_clearance_steps
+REQUIRED_SIDE_EFFECTS.add(("Placement", "Processing"))
 TRANSITION_SIDE_EFFECTS[("Placement", "Stamped")] = notify_ticketing_due
 TRANSITION_SIDE_EFFECTS[("Placement", "Ticketed")] = notify_departure_due

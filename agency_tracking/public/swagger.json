@@ -4521,7 +4521,7 @@
           "Placement"
         ],
         "summary": "Move a Placement forward via the sanctioned transition() path",
-        "description": "The direct/manual advance. override_reason attempts a Manager Override if the move is gate-blocked. Refuses new_status='Cancelled': cancel through applicant_api.cancel_applicant (reason + freezes applicant, placement and steps).",
+        "description": "The direct/manual advance. override_reason attempts a Manager Override if the move is gate-blocked. Refuses new_status='Cancelled': cancel through applicant_api.cancel_applicant (reason + freezes applicant, placement and steps). Moving to Processing creates every clearance step of the destination's corridor or none: it is refused (417, placement stays Selected) if the corridor has no mandatory step or a step can't be created. Stamped needs every mandatory corridor step done, including any whose row is missing.",
         "x-roles": [
           "Write access to the Placement",
           "Manager/Admin required for any override"

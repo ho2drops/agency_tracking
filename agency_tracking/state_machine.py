@@ -209,6 +209,11 @@ class NoOverride(str):
 # triggers commission accrual on reaching Departed") instead of scattering them across callers.
 TRANSITION_SIDE_EFFECTS = {}
 
+# (doctype, to_status) whose side effect is part of the move itself, not best-effort: if it
+# raises, the move is undone and the caller gets the error (QA P4-04 -- a Processing placement
+# must never exist with only some of its clearance steps).
+REQUIRED_SIDE_EFFECTS = set()
+
 
 # --- Out-of-band write guard (QA A1: S-01, S-02, P4-02, P4-03, P5-07) ---
 # Role permissions still grant write on these doctypes (unchanged on purpose), so generic REST /
@@ -339,24 +344,37 @@ def _transition(doc, new_status, actor=None, override=False, override_reason=Non
 			frappe.throw("A written reason is required to override this gate.", frappe.ValidationError)
 
 	actor = actor or frappe.session.user
-	doc.status = new_status
-	doc.save(ignore_permissions=ignore_permissions)
-
-	frappe.get_doc(
-		{
-			"doctype": "Process Event",
-			"reference_doctype": doc.doctype,
-			"reference_name": doc.name,
-			"event_type": "Override" if is_override else "Transition",
-			"from_status": current_status,
-			"to_status": new_status,
-			"actor": actor,
-			"remarks": override_reason if is_override else remarks,
-		}
-	).insert(ignore_permissions=True)
-
 	side_effect = TRANSITION_SIDE_EFFECTS.get((doc.doctype, new_status))
-	if side_effect:
+	required = side_effect if (doc.doctype, new_status) in REQUIRED_SIDE_EFFECTS else None
+	# "sp_" prefix: MariaDB rejects a savepoint name that parses as a number (see stage_fees).
+	save_point = f"sp_{frappe.generate_hash(length=10)}"
+	frappe.db.savepoint(save_point)
+	try:
+		doc.status = new_status
+		doc.save(ignore_permissions=ignore_permissions)
+
+		frappe.get_doc(
+			{
+				"doctype": "Process Event",
+				"reference_doctype": doc.doctype,
+				"reference_name": doc.name,
+				"event_type": "Override" if is_override else "Transition",
+				"from_status": current_status,
+				"to_status": new_status,
+				"actor": actor,
+				"remarks": override_reason if is_override else remarks,
+			}
+		).insert(ignore_permissions=True)
+		if required:
+			required(doc, current_status)
+	except Exception as exc:
+		# After a DB abort the savepoint no longer exists (QA B-b1).
+		reraise_if_db_abort(exc)
+		frappe.db.rollback(save_point=save_point)
+		doc.status = current_status
+		raise
+
+	if side_effect and not required:
 		try:
 			side_effect(doc, current_status)
 		except Exception as exc:
@@ -478,14 +496,25 @@ CLEARANCE_STEP_DONE_STATUSES = {"Complete", "Issued", "Stamped"}
 
 
 def all_mandatory_clearance_steps_complete(placement):
+	"""Checked against the destination's corridor, not just the rows that exist: a mandatory
+	corridor step with no Clearance Step row blocks too (QA P4-04)."""
+	from agency_tracking.corridor_engine import get_corridor_steps
+
 	steps = frappe.get_all(
 		"Clearance Step",
-		filters={"placement": placement.name, "is_mandatory": 1},
-		fields=["step_type", "status"],
+		filters={"placement": placement.name},
+		fields=["step_type", "status", "is_mandatory"],
 	)
-	if not steps:
+	mandatory = [s for s in steps if s.is_mandatory]
+	if not mandatory:
 		return "no mandatory Clearance Steps exist yet for this Placement."
-	pending = [f"{s.step_type} ({s.status})" for s in steps if s.status not in CLEARANCE_STEP_DONE_STATUSES]
+	pending = [f"{s.step_type} ({s.status})" for s in mandatory if s.status not in CLEARANCE_STEP_DONE_STATUSES]
+	existing = {s.step_type for s in steps}
+	pending += [
+		f"{c['step_type']} (missing)"
+		for c in get_corridor_steps(placement.destination_country)
+		if c["is_mandatory"] and c["step_type"] not in existing
+	]
 	if pending:
 		return "mandatory Clearance Steps not yet complete: " + ", ".join(pending)
 	return True
