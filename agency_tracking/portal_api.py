@@ -178,15 +178,20 @@ def _is_internal_placement_reader():
 def _own_placement_or_403(placement_name, contractor):
 	"""Multi-tenant isolation gate for returning an *existing* Placement to a portal caller.
 
-	Idempotent re-selection by the placement's real owner returns the placement; internal staff
+	Idempotent re-selection by the placement's real owner returns the placement's portal fields; internal staff
 	(_is_internal_placement_reader) also get it. Any other agency gets a bare PermissionError —
 	no placement name, contractor, status, financial, clearance, ticket, or any other field is
 	read or returned. This is the single choke point both select_candidate return paths funnel
 	through, so a row-lock/idempotency race cannot bypass the ownership check."""
 	owner_contractor = frappe.db.get_value("Placement", placement_name, "contractor")
 	if _is_internal_placement_reader() or owner_contractor == contractor.name:
-		return frappe.get_doc("Placement", placement_name).as_dict()
+		return _portal_placement(frappe.get_doc("Placement", placement_name))
 	frappe.throw("Not permitted.", frappe.PermissionError)
+
+
+def _portal_placement(doc):
+	"""A Placement as the portal may see it: PORTAL_PLACEMENT_FIELDS only (P6-03)."""
+	return {k: doc.get(k) for k in PORTAL_PLACEMENT_FIELDS}
 
 
 def _get_latest_cv_record(applicant_name):
@@ -466,7 +471,7 @@ def select_candidate(applicant_name=None, free_replacement_for_complaint=None, c
 	).insert(ignore_permissions=True)
 
 	frappe.db.set_value("Applicant", applicant_name, "active_placement", placement.name)
-	return placement.as_dict()
+	return _portal_placement(placement)
 
 
 @frappe.whitelist()
