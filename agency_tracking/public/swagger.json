@@ -464,7 +464,7 @@
           "Applicant Lifecycle"
         ],
         "summary": "Open a new Applicant file at Draft",
-        "description": "Draft floor: full_name, gender, nationality, entry_track. Accepts any other Applicant field as additional form data. Names are stored in ALL CAPS: first_name/middle_name/last_name/full_name/place_of_birth/passport_issue_place are uppercased and whitespace-collapsed on every save, and full_name is always rebuilt from first/middle/last when any part is set (a sent full_name is only kept when there are no parts).",
+        "description": "Draft floor: full_name, gender, nationality, entry_track. Accepts any other Applicant field as additional form data. fee_status is ignored here: a fee is marked Paid only through log_applicant_fee (D-27). Names are stored in ALL CAPS: first_name/middle_name/last_name/full_name/place_of_birth/passport_issue_place are uppercased and whitespace-collapsed on every save, and full_name is always rebuilt from first/middle/last when any part is set (a sent full_name is only kept when there are no parts).",
         "x-roles": [
           "Registrar",
           "Manager",
@@ -873,7 +873,7 @@
           "Applicant Lifecycle"
         ],
         "summary": "Manually log the Registration Fee to the Finance ledger",
-        "description": "Sets fee_status=Paid and saves -- Applicant.maybe_log_fee_transaction then creates the actual Pending Applicant Transaction in the same save. Requires fee_required + registration_fee_amount already set; throws if this fee was already logged.",
+        "description": "The only way to set fee_status=Paid (edits ignore it, D-27). Sets fee_status=Paid and saves -- Applicant.maybe_log_fee_transaction then creates the actual Pending Applicant Transaction in the same save. Requires fee_required + registration_fee_amount already set; throws if this fee was already logged.",
         "x-roles": [
           "Any internal staff role (Registrar, Clearance Officer, Ticketer, Finance Manager, Manager, Admin, etc.)"
         ],
@@ -921,7 +921,7 @@
           "Applicant Lifecycle"
         ],
         "summary": "Draft -> Registered",
-        "description": "Field-floor and medical checks run inside Applicant.validate(), triggered by the sanctioned transition() path. Refused (417) if the destination_country has no Corridor Definition (D-14). Refused (403) if the applicant has an active country ban on their destination_country, unless a Manager/Admin overrides or an approved Country Ban Request pass exists (see request_country_ban_exception).",
+        "description": "Field-floor and medical checks run inside Applicant.validate(), triggered by the sanctioned transition() path. fee_status is ignored here: a fee is marked Paid only through log_applicant_fee (D-27). Refused (417) if the destination_country has no Corridor Definition (D-14). Refused (403) if the applicant has an active country ban on their destination_country, unless a Manager/Admin overrides or an approved Country Ban Request pass exists (see request_country_ban_exception).",
         "x-roles": [
           "Write access to the Applicant"
         ],
@@ -1055,7 +1055,7 @@
           "Applicant Lifecycle"
         ],
         "summary": "Edit an Applicant at Draft or Registered",
-        "description": "Does not change status -- use register_applicant for that. If entry_track changes while Registered/CV Generated, forces a regression to Draft first (cycle_number bumps automatically). Changing entry_track is refused while the applicant has an active placement (cancel it first). Refused (417) if the destination_country has no Corridor Definition (D-14). A destination_country that differs from the current one is checked against active Applicant Country Bans (re-submitting the unchanged country is not re-checked, so routine edits of a banned applicant still save). Names are stored in ALL CAPS: first_name/middle_name/last_name/full_name/place_of_birth/passport_issue_place are uppercased and whitespace-collapsed on every save, and full_name is always rebuilt from first/middle/last when any part is set (a sent full_name is only kept when there are no parts).",
+        "description": "Does not change status -- use register_applicant for that. fee_status is ignored here: a fee is marked Paid only through log_applicant_fee (D-27). If entry_track changes while Registered/CV Generated, forces a regression to Draft first (cycle_number bumps automatically). Changing entry_track is refused while the applicant has an active placement (cancel it first). Refused (417) if the destination_country has no Corridor Definition (D-14). A destination_country that differs from the current one is checked against active Applicant Country Bans (re-submitting the unchanged country is not re-checked, so routine edits of a banned applicant still save). Names are stored in ALL CAPS: first_name/middle_name/last_name/full_name/place_of_birth/passport_issue_place are uppercased and whitespace-collapsed on every save, and full_name is always rebuilt from first/middle/last when any part is set (a sent full_name is only kept when there are no parts).",
         "x-roles": [
           "Registrar",
           "Manager",

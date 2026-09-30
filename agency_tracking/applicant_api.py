@@ -18,8 +18,11 @@ CYCLE_REGRESSION_STATUSES = ("Registered", "CV Generated")
 # field it was sent -- confirmed live, it could clear active_placement, detaching a placed applicant
 # so another agency could select her, or rewrite cycle_number / fee_transaction). entry_track stays
 # editable here on purpose (update_applicant handles its cycle regression below).
+# fee_status too: Paid writes an Income row to the ledger, so it's set only by the Log Fee button
+# (log_applicant_fee) and its checks (K, user 2026-09-30).
 APPLICANT_SYSTEM_FIELDS = (LIFECYCLE_FIELDS - {"entry_track"}) | {
 	"cycle_number",
+	"fee_status",
 	"fee_transaction",
 	"fee_log",
 	"age",
