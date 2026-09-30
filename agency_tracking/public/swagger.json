@@ -5209,7 +5209,7 @@
           "Portal (Foreign Agency)"
         ],
         "summary": "Browse the candidate catalog",
-        "description": "Standard-track, CV Generated, not yet locked by anyone, matching the agency's own destination country. Non-PII fields only. (2026-09-21: photograph/photo_full_body/experience_video/passport_scan, when stored on R2, are returned as short-lived signed URLs -- 2h expiry -- not permanent links; refetch this endpoint rather than caching/reusing an old URL.) Applicants with an active country ban on their destination_country are excluded. Medical (2026-09-23): medically UNFIT applicants never appear. medical_status is included ONLY when it is \"FIT\"; for any other value (Pending/blank) the key is omitted entirely. Paging (2026-09-23): limit_start / limit_page_length (max 500) / with_total.",
+        "description": "Standard-track, CV Generated, not yet locked by anyone, matching the agency's own destination country. Non-PII fields only. (2026-09-21: photograph/photo_full_body/experience_video, when stored on R2, are returned as short-lived signed URLs -- 2h expiry -- not permanent links; refetch this endpoint rather than caching/reusing an old URL.) The passport scan is not returned (D-10, 2026-09-30): the agency gets it on the CV only. Applicants with an active country ban on their destination_country are excluded. Medical (2026-09-23): medically UNFIT applicants never appear. medical_status is included ONLY when it is \"FIT\"; for any other value (Pending/blank) the key is omitted entirely. Paging (2026-09-23): limit_start / limit_page_length (max 500) / with_total.",
         "x-roles": [
           "Foreign Agency"
         ],
@@ -8114,7 +8114,7 @@
           "Portal (Foreign Agency)"
         ],
         "summary": "Get non-PII catalog candidate detail for foreign agency",
-        "description": "Returns rich profile (video, skills matrix, physical attributes, salary expectation) scoped to the foreign agency's destination country. (2026-09-21: photograph/photo_full_body/experience_video/passport_scan, when stored on R2, are returned as short-lived signed URLs -- 2h expiry -- not permanent links; refetch this endpoint rather than caching/reusing an old URL.) Medical (2026-09-23): medically UNFIT applicants never appear. medical_status is included ONLY when it is \"FIT\"; for any other value (Pending/blank) the key is omitted entirely. An UNFIT candidate returns 403 to a Foreign Agency.",
+        "description": "Returns rich profile (video, skills matrix, physical attributes, salary expectation) scoped to the foreign agency's destination country. (2026-09-21: photograph/photo_full_body/experience_video, when stored on R2, are returned as short-lived signed URLs -- 2h expiry -- not permanent links; refetch this endpoint rather than caching/reusing an old URL.) The passport scan is not returned (D-10, 2026-09-30): the agency gets it on the CV only. Medical (2026-09-23): medically UNFIT applicants never appear. medical_status is included ONLY when it is \"FIT\"; for any other value (Pending/blank) the key is omitted entirely. An UNFIT candidate returns 403 to a Foreign Agency.",
         "x-roles": [
           "Foreign Agency",
           "Manager",

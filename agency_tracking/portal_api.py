@@ -23,6 +23,8 @@ from agency_tracking.state_machine import lock_applicant_row
 # on the CV and has no agency-facing purpose: national_id, labor_id, phone/alternate_phone, email,
 # home address, emergency_contact_*, region/sub_region, and all internal-only fields (fees,
 # medical_remarks).
+# D-10 (2026-09-30): passport_scan is NOT here -- the agency gets it on the CV only, not as a signed
+# link per candidate across the whole marketplace (S-19).
 PORTAL_FIELDS = [
 	"name",
 	"full_name",
@@ -62,7 +64,6 @@ PORTAL_FIELDS = [
 	"passport_issue_date",
 	"passport_expiry_date",
 	"passport_issue_place",
-	"passport_scan",
 	"skill_cleaning",
 	"skill_cooking",
 	"skill_washing",
@@ -264,12 +265,12 @@ def list_portal_candidates(target_job=None, gender=None, limit_start=0, limit_pa
 		limit_page_length=length,
 		order_by="modified desc",
 	)
-	# Resolve any R2-stored media (photograph/photo_full_body/experience_video/passport_scan --
+	# Resolve any R2-stored media (photograph/photo_full_body/experience_video --
 	# see storage_engine.py's 2026-09-21 private-bucket rewrite) to short-lived signed URLs. A
 	# safe no-op for rows whose files are still local, or not yet migrated to R2 at all.
 	from agency_tracking.storage_engine import resolve_r2_fields
 
-	resolve_r2_fields(rows, ["photograph", "photo_full_body", "experience_video", "passport_scan"])
+	resolve_r2_fields(rows, ["photograph", "photo_full_body", "experience_video"])
 	return paged_result(
 		_portal_medical_status(rows), with_total, lambda: count_rows("Applicant", filters, ignore_permissions=True)
 	)
@@ -325,7 +326,7 @@ def get_candidate_detail(applicant_name=None, **kwargs):
 
 	from agency_tracking.storage_engine import resolve_r2_fields
 
-	resolve_r2_fields([row], ["photograph", "photo_full_body", "experience_video", "passport_scan"])
+	resolve_r2_fields([row], ["photograph", "photo_full_body", "experience_video"])
 	return _portal_medical_status([row])[0]
 
 
