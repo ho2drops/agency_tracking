@@ -107,6 +107,14 @@ def _user_can_edit_step_type(step_type, roles):
 	return bool(MANAGEMENT & roles) or CLEARANCE_ROLE_BY_STEP_TYPE.get(step_type) in roles or "Clearance Officer" in roles
 
 
+def _require_grid_editor():
+	"""Endpoint gate for saving: refuse anyone who can't edit any step_type's grid. Rows are still
+	checked one by one (P6-04: agencies and no-role users reached the save before this)."""
+	roles = set(frappe.get_roles())
+	if not any(_user_can_edit_step_type(t, roles) for t in STATUS_FLOW):
+		frappe.throw("Not permitted.", frappe.PermissionError)
+
+
 @frappe.whitelist()
 def get_clearance_grid_columns(step_type=None, **kwargs):
 	"""Columns for one step_type's grid: {field, label, type, options, editable}. `editable` is for
@@ -364,6 +372,7 @@ def save_clearance_grid(changes=None, **kwargs):
 	A row is all-or-nothing; rows are independent. conflict=true means someone else saved that row
 	after it was loaded -- reload it and re-apply. override_reason is the Manager/Admin override for
 	submitting/stamping an Embassy step with Wakala unpaid (same rule as the buttons)."""
+	_require_grid_editor()
 	changes = frappe.parse_json(changes) if isinstance(changes, str) else (changes or [])
 	if not isinstance(changes, list) or not changes:
 		frappe.throw("changes must be a non-empty list.", frappe.ValidationError)
