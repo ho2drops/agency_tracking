@@ -254,8 +254,7 @@ def list_portal_candidates(target_job=None, gender=None, limit_start=0, limit_pa
 	if banned_names:
 		filters["name"] = ["not in", banned_names]
 
-	# default=0: every candidate when no page size is given (its historical behavior).
-	start, length = page_args(limit_start, limit_page_length, default=0)
+	start, length = page_args(limit_start, limit_page_length)
 	rows = frappe.get_list(
 		"Applicant",
 		filters=filters,

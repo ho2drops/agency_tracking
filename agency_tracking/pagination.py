@@ -28,16 +28,14 @@ def require_list_permission(doctype):
 
 
 def page_args(limit_start=None, limit_page_length=None, default=100):
-	"""(start, length) for frappe.get_list/get_all. `default=0` means the endpoint historically
-	returned everything when no page size was given -- kept as-is for a first page, so those
-	callers see no change, but capped at MAX_PAGE_LENGTH once a caller actually starts paging."""
+	"""(start, length) for frappe.get_list/get_all: no/invalid size -> `default`, always capped at
+	MAX_PAGE_LENGTH. No list returns the whole table in one call (2026-09-30: list_complaints and
+	list_portal_candidates used to, via default=0)."""
 	start = max(cint(limit_start), 0)
 	length = cint(limit_page_length)
 	if length <= 0:
 		length = default
-		if length == 0 and start > 0:
-			length = MAX_PAGE_LENGTH
-	return start, min(length, MAX_PAGE_LENGTH) if length > 0 else 0
+	return start, min(length, MAX_PAGE_LENGTH)
 
 
 def count_rows(doctype, filters=None, ignore_permissions=False):

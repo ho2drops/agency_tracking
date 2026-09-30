@@ -5209,7 +5209,7 @@
           "Portal (Foreign Agency)"
         ],
         "summary": "Browse the candidate catalog",
-        "description": "Standard-track, CV Generated, not yet locked by anyone, matching the agency's own destination country. Non-PII fields only. (2026-09-21: photograph/photo_full_body/experience_video, when stored on R2, are returned as short-lived signed URLs -- 2h expiry -- not permanent links; refetch this endpoint rather than caching/reusing an old URL.) The passport scan is not returned (D-10, 2026-09-30): the agency gets it on the CV only. Applicants with an active country ban on their destination_country are excluded. Medical (2026-09-23): medically UNFIT applicants never appear. medical_status is included ONLY when it is \"FIT\"; for any other value (Pending/blank) the key is omitted entirely. Paging (2026-09-23): limit_start / limit_page_length (max 500) / with_total.",
+        "description": "Standard-track, CV Generated, not yet locked by anyone, matching the agency's own destination country. Non-PII fields only. (2026-09-21: photograph/photo_full_body/experience_video, when stored on R2, are returned as short-lived signed URLs -- 2h expiry -- not permanent links; refetch this endpoint rather than caching/reusing an old URL.) The passport scan is not returned (D-10, 2026-09-30): the agency gets it on the CV only. Applicants with an active country ban on their destination_country are excluded. Medical (2026-09-23): medically UNFIT applicants never appear. medical_status is included ONLY when it is \"FIT\"; for any other value (Pending/blank) the key is omitted entirely. Paging (2026-09-23): limit_start / limit_page_length (max 500) / with_total. Paged: with no limit_page_length it returns the first 100 rows (max 500 per page); page with limit_start, and pass with_total=1 for the count. It used to return every row.",
         "x-roles": [
           "Foreign Agency"
         ],
@@ -5231,7 +5231,7 @@
             "in": "formData",
             "type": "integer",
             "required": false,
-            "description": "Page size, clamped to 1-500. Blank/0 = all rows (historical behavior)."
+            "description": "Page size, clamped to 1-500. Blank/0 = the default page of 100."
           },
           {
             "name": "with_total",
@@ -7672,7 +7672,7 @@
           "Complaints"
         ],
         "summary": "List all complaints",
-        "description": "Returns role-scoped list of complaint tickets (scoped to foreign agency tenant if called by Foreign Agency role). Paging (2026-09-23): limit_start / limit_page_length (max 500) / with_total.",
+        "description": "Returns role-scoped list of complaint tickets (scoped to foreign agency tenant if called by Foreign Agency role). Paging (2026-09-23): limit_start / limit_page_length (max 500) / with_total. Paged: with no limit_page_length it returns the first 100 rows (max 500 per page); page with limit_start, and pass with_total=1 for the count. It used to return every row.",
         "x-roles": [
           "Manager",
           "Admin",
@@ -7706,7 +7706,7 @@
             "in": "formData",
             "type": "integer",
             "required": false,
-            "description": "Page size, clamped to 1-500. Blank/0 = all rows (historical behavior)."
+            "description": "Page size, clamped to 1-500. Blank/0 = the default page of 100."
           },
           {
             "name": "with_total",

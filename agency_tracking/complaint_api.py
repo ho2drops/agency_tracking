@@ -110,8 +110,7 @@ def list_complaints(status=None, limit_start=0, limit_page_length=0, with_total=
 		frappe.throw("Not permitted.", frappe.PermissionError)
 	status = status or kwargs.get("complaint_status")
 	filters = {"status": status} if status else {}
-	# default=0: still returns every complaint when no page size is given (its historical behavior).
-	start, length = page_args(limit_start, limit_page_length, default=0)
+	start, length = page_args(limit_start, limit_page_length)
 	rows = frappe.get_list(
 		"Complaint",
 		filters=filters,
