@@ -180,18 +180,27 @@ def _placement_todo_to_role(placement, role, description):
 		notify(user, "placement_todo_assigned", {"placement": placement.name, "description": description})
 
 
+def close_open_todos(reference_type, reference_names):
+	"""Close every open ToDo on these records (a name or a list of names)."""
+	if isinstance(reference_names, str):
+		reference_names = [reference_names]
+	if not reference_names:
+		return
+	open_todos = frappe.get_all(
+		"ToDo",
+		filters={"reference_type": reference_type, "reference_name": ["in", reference_names], "status": "Open"},
+		pluck="name",
+	)
+	for todo_name in open_todos:
+		frappe.db.set_value("ToDo", todo_name, "status", "Closed")
+
+
 def _close_placement_todos(placement_name):
 	"""Close every open Placement-level ToDo for this placement -- the only two kinds that ever
 	exist are "Book ticket..." and "Confirm departure..." (both created above), so this is safe
 	to call unconditionally whenever one of those tasks is genuinely done, without needing to
 	match on description text."""
-	open_todos = frappe.get_all(
-		"ToDo",
-		filters={"reference_type": "Placement", "reference_name": placement_name, "status": "Open"},
-		pluck="name",
-	)
-	for todo_name in open_todos:
-		frappe.db.set_value("ToDo", todo_name, "status", "Closed")
+	close_open_todos("Placement", placement_name)
 
 
 def notify_ticketing_due(placement, from_status=None):

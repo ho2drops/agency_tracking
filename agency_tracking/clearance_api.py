@@ -7,7 +7,7 @@ import frappe
 from frappe.utils import formatdate, today
 
 from agency_tracking.clearance_engine import assign_clearance_step as _engine_assign_clearance_step
-from agency_tracking.clearance_engine import _broadcast_todo_to_role_holders
+from agency_tracking.clearance_engine import _broadcast_todo_to_role_holders, close_open_todos
 from agency_tracking.pagination import require_list_permission
 from agency_tracking.agency_tracking.doctype.clearance_step.clearance_step import CLEARANCE_ROLE_BY_STEP_TYPE
 from agency_tracking.pdf_utils import asset_datauri, code128_b_datauri, embed_image_datauri, render_pdf
@@ -101,13 +101,7 @@ def _can_act_on_step(step):
 
 
 def _close_open_todos(clearance_step_name):
-	open_todos = frappe.get_all(
-		"ToDo",
-		filters={"reference_type": "Clearance Step", "reference_name": clearance_step_name, "status": "Open"},
-		pluck="name",
-	)
-	for todo_name in open_todos:
-		frappe.db.set_value("ToDo", todo_name, "status", "Closed")
+	close_open_todos("Clearance Step", clearance_step_name)
 
 
 @frappe.whitelist()

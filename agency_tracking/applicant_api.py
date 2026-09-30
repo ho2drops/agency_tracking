@@ -8,6 +8,7 @@
 
 import frappe
 
+from agency_tracking.clearance_engine import close_open_todos
 from agency_tracking.pagination import count_rows, page_args, paged_result, require_list_permission
 from agency_tracking.state_machine import LIFECYCLE_FIELDS, transition
 
@@ -255,6 +256,9 @@ def cancel_applicant_cascade(doc, reason):
 		frappe.db.set_value(
 			"Clearance Step", {"placement": placement.name}, "status", "Cancelled"
 		)
+		# P4-15: nobody keeps a task on a dead case.
+		close_open_todos("Placement", placement.name)
+		close_open_todos("Clearance Step", frappe.get_all("Clearance Step", {"placement": placement.name}, pluck="name"))
 		doc.active_placement = None
 
 	transition(doc, "Cancelled", remarks=reason, ignore_permissions=True)
