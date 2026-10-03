@@ -127,9 +127,11 @@
     }
 
     /* ═══ FULL BODY PHOTO ═══ */
+    /* Height balances the two columns so page 1 ends on one page (the right column is the taller
+       one; see the row sizes under DATA TABLE GRID). */
     .photo-full-wrap {
       width: 100%;
-      height: 600px;
+      height: 400px;
       text-align: center;
       overflow: hidden;
       border-bottom: 2px solid #000000;
@@ -143,7 +145,7 @@
     }
 
     .photo-full-wrap .ph-empty {
-      line-height: 600px;
+      line-height: 400px;
       font-size: 13pt;
       color: #aaa;
       font-weight: bold;
@@ -183,11 +185,13 @@
       border-collapse: collapse;
     }
 
+    /* Every row is one line high: labels never wrap, so page 1's height does not depend on the
+       font the server happens to have. Only a long value (a name) can add a line. */
     .dtbl td {
       border: 1.5px solid #000;
-      padding: 5px 8px;
-      font-size: 10.5pt;
-      line-height: 1.3;
+      padding: 4px 6px;
+      font-size: 10pt;
+      line-height: 1.25;
       vertical-align: middle;
     }
 
@@ -208,7 +212,8 @@
       font-weight: 700;
       text-align: left;
       width: 34%;
-      font-size: 10.5pt;
+      font-size: 10pt;
+      white-space: nowrap;
     }
 
     .val {
@@ -224,7 +229,8 @@
       direction: rtl;
       width: 28%;
       font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
-      font-size: 11pt;
+      font-size: 10pt;
+      white-space: nowrap;
     }
 
     /* ═══ EDUCATION SINGLE BOX ═══ */
@@ -536,10 +542,9 @@
               <td class="ar">&nbsp;</td>
             </tr>
             <tr>
-              <td class="lbl" style="line-height:1.15;">Date<br><span
-                  style="font-family:'Segoe UI',Tahoma,Arial,sans-serif;font-size:10pt;">تاريخ</span></td>
+              <td class="lbl">Date</td>
               <td class="val">{{ generated_date }}</td>
-              <td class="ar">&nbsp;</td>
+              <td class="ar">تاريخ</td>
             </tr>
           </table>
 
