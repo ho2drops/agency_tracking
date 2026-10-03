@@ -91,12 +91,16 @@ def contract_age_watchdog():
 	threshold_days = frappe.get_single("Notification Config").contract_age_threshold_days or 30
 	cutoff_date = add_days(today(), -threshold_days)
 
+	# A list of conditions, not a dict: the date needs two. "<= cutoff" alone also matches a
+	# placement with no contract date (an empty date compares as very old), and a contract that
+	# was never signed has no age to report.
 	placements = frappe.get_all(
 		"Placement",
-		filters={
-			"status": ["!=", "Departed"],
-			"contract_signed_date": ["<=", cutoff_date],
-		},
+		filters=[
+			["status", "!=", "Departed"],
+			["contract_signed_date", "is", "set"],
+			["contract_signed_date", "<=", cutoff_date],
+		],
 		fields=["name", "contract_signed_date"],
 	)
 	management = _management_recipients()
