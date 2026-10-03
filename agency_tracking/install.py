@@ -32,6 +32,8 @@ ROLES = [
 	"Kuwait Embassy",
 	# 2026-09-05: records the post-Selected and pre-departure medical results.
 	"Medical Officer",
+	# 2026-09-30: prepares and generates CVs (see roles.CV).
+	"CV",
 ]
 
 

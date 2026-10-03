@@ -1212,6 +1212,129 @@
         ]
       }
     },
+    "/api/method/agency_tracking.applicant_api.update_applicant_for_cv": {
+      "post": {
+        "tags": [
+          "Applicant Lifecycle"
+        ],
+        "summary": "CV-stage edit: the CV sheet's columns",
+        "description": "Narrow allowlisted edit surface for the CV role, who reads Applicant but has no general write on it. Only applicants at Registered or CV Generated (417 otherwise). Any field outside the allowlist is silently ignored. The CV role lists its sheet with list_applicants (filters: status in Registered, CV Generated) and generates the CV with cv_api.generate_cv.",
+        "x-roles": [
+          "CV",
+          "Manager",
+          "Admin"
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded",
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "applicant_name",
+            "in": "formData",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "phone",
+            "in": "formData",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "labor_id",
+            "in": "formData",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "religion",
+            "in": "formData",
+            "type": "string",
+            "required": false,
+            "enum": [
+              "Muslim",
+              "Orthodox",
+              "Protestant",
+              "Catholic",
+              "Other"
+            ]
+          },
+          {
+            "name": "region",
+            "in": "formData",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "marital_status",
+            "in": "formData",
+            "type": "string",
+            "required": false,
+            "enum": [
+              "Single",
+              "Married",
+              "Divorced",
+              "Widowed"
+            ]
+          },
+          {
+            "name": "children",
+            "in": "formData",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "name": "years_of_experience",
+            "in": "formData",
+            "type": "integer",
+            "required": false
+          },
+          {
+            "name": "english_level",
+            "in": "formData",
+            "type": "string",
+            "required": false,
+            "enum": [
+              "None",
+              "Basic",
+              "Good",
+              "Fluent"
+            ]
+          },
+          {
+            "name": "remarks",
+            "in": "formData",
+            "type": "string",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "$ref": "#/definitions/ApplicantDoc"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted (role/permission check failed)"
+          },
+          "417": {
+            "description": "Validation error (business rule violated)"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/api/method/agency_tracking.chat_engine.get_placement_officers": {
       "post": {
         "tags": [
@@ -2878,7 +3001,8 @@
         "summary": "Generate and attach the official Agency CV PDF",
         "description": "Standard track, Registered status only. Renders via a Frappe Print Format, mirrors to Cloudflare R2 (falls back to a local private file if Storage Settings isn't configured). Moves the Applicant to CV Generated. Refused (403) if the applicant has an active country ban on their destination_country, unless a Manager/Admin overrides or an approved Country Ban Request pass exists -- CV Generated is what makes an applicant visible in the agency portal. Refused (417, no override) if the applicant's medical_status is UNFIT.",
         "x-roles": [
-          "Write access to the Applicant"
+          "Write access to the Applicant",
+          "CV"
         ],
         "consumes": [
           "application/x-www-form-urlencoded",

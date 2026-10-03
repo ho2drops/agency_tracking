@@ -6,7 +6,7 @@
 import frappe
 
 from agency_tracking.pdf_utils import embed_image_datauri, render_pdf
-from agency_tracking.roles import require_internal_staff
+from agency_tracking.roles import CV, require_internal_staff
 from agency_tracking.state_machine import transition
 
 CV_TEMPLATE = "templates/cv_template.html"
@@ -134,7 +134,11 @@ def generate_cv(applicant_name=None, override_ban=False, override_reason=None, *
 	if not applicant_name:
 		frappe.throw("applicant_name is required.", frappe.ValidationError)
 	applicant = frappe.get_doc("Applicant", applicant_name)
-	if not applicant.has_permission("write"):
+	# Whoever may edit the applicant, or the CV role (reads Applicant, generating the CV is its job).
+	may_generate = applicant.has_permission("write") or (
+		CV in frappe.get_roles() and applicant.has_permission("read")
+	)
+	if not may_generate:
 		frappe.throw("Not permitted.", frappe.PermissionError)
 	if applicant.status == "CV Generated":
 		cv_name = frappe.db.get_value("CV Record", {"applicant": applicant_name}, "name") or "CV-RECORD"
@@ -166,7 +170,8 @@ def generate_cv(applicant_name=None, override_ban=False, override_reason=None, *
 
 	cv.submit()
 
-	transition(applicant, "CV Generated")
+	# Decided by may_generate above: the CV role has no write on Applicant of its own.
+	transition(applicant, "CV Generated", ignore_permissions=True)
 	return {"cv_record": cv.name, "applicant_status": applicant.status}
 
 

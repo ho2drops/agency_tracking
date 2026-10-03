@@ -28,6 +28,9 @@ KUWAIT_TELESIGN = "Kuwait Telesign"
 KUWAIT_EMBASSY = "Kuwait Embassy"
 # Records the post-Selected and pre-departure medical results (placement_api.record_*_medical_result).
 MEDICAL_OFFICER = "Medical Officer"
+# Prepares the CV: fills the CV sheet's own columns (applicant_api.update_applicant_for_cv) and
+# generates the CV (cv_api.generate_cv). Reads Applicant, has no general write on it.
+CV = "CV"
 
 CLEARANCE_COUNTRY_ROLES = {SAUDI_LMIS, SAUDI_TAESHIR, SAUDI_EMBASSY, KUWAIT_LMIS, KUWAIT_TELESIGN, KUWAIT_EMBASSY}
 
@@ -45,6 +48,7 @@ INTERNAL_STAFF_ROLES = {
 	ADMIN,
 	CONTRACT_PARSER,
 	MEDICAL_OFFICER,
+	CV,
 	"Administrator",
 	"System Manager",
 } | CLEARANCE_COUNTRY_ROLES

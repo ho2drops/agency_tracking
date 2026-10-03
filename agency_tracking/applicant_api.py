@@ -10,6 +10,7 @@ import frappe
 
 from agency_tracking.clearance_engine import close_open_todos
 from agency_tracking.pagination import count_rows, page_args, paged_result, require_list_permission
+from agency_tracking.roles import CV
 from agency_tracking.state_machine import LIFECYCLE_FIELDS, log_action, transition
 
 CYCLE_REGRESSION_STATUSES = ("Registered", "CV Generated")
@@ -226,6 +227,44 @@ def update_applicant_for_lmis(applicant_name=None, **data):
 
 	doc = frappe.get_doc("Applicant", applicant_name)
 	updates = {k: v for k, v in data.items() if k in LMIS_EDITABLE_FIELDS}
+	doc.update(updates)
+	doc.save(ignore_permissions=True)
+	return doc.as_dict()
+
+
+# The CV sheet's own columns. Name, passport, age and medical are on the sheet but not here: they
+# are entered at registration (update_applicant) and by the medical record endpoints.
+CV_EDITABLE_FIELDS = (
+	"phone",
+	"labor_id",
+	"religion",
+	"region",
+	"marital_status",
+	"children",
+	"years_of_experience",
+	"english_level",
+	"remarks",
+)
+CV_STAGE_STATUSES = ("Registered", "CV Generated")
+
+
+@frappe.whitelist()
+def update_applicant_for_cv(applicant_name=None, **data):
+	"""Narrow CV-stage edit surface (2026-09-30), same shape as update_applicant_for_lmis: the CV
+	role fills the CV sheet's columns on an applicant who is waiting for a CV or already has one,
+	without general write on Applicant. Any field outside the allowlist is ignored."""
+	if not applicant_name:
+		frappe.throw("applicant_name is required.", frappe.ValidationError)
+	if not ({CV, "Manager", "Admin"} & set(frappe.get_roles())):
+		frappe.throw("Not permitted.", frappe.PermissionError)
+
+	doc = frappe.get_doc("Applicant", applicant_name)
+	if doc.status not in CV_STAGE_STATUSES:
+		frappe.throw(
+			f"{applicant_name} is {doc.status}; the CV sheet edits only Registered and CV Generated applicants.",
+			frappe.ValidationError,
+		)
+	updates = {k: v for k, v in data.items() if k in CV_EDITABLE_FIELDS}
 	doc.update(updates)
 	doc.save(ignore_permissions=True)
 	return doc.as_dict()
