@@ -5,6 +5,7 @@ import frappe
 from frappe.model.document import Document
 from decimal import Decimal
 from agency_tracking.state_machine import guard_status_write
+from agency_tracking.db_errors import reraise_if_db_abort
 
 # Part A.2 / business-workflow-srs.md Stage 1: bare minimum to open a file. Registrar-confirmed
 # floor (2026-08-29): phone/address are NOT required at Draft -- only identity + which track.
@@ -157,7 +158,8 @@ class Applicant(Document):
 				return
 			file_path = frappe.get_doc("File", file_doc).get_full_path()
 			extracted = parse_passport_mrz(file_path)
-		except Exception:
+		except Exception as exc:
+			reraise_if_db_abort(exc)
 			frappe.log_error(title="Passport auto-fill failed", message=f"Applicant {self.name}")
 			return
 

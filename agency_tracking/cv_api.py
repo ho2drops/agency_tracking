@@ -8,6 +8,7 @@ import frappe
 from agency_tracking.pdf_utils import embed_image_datauri, render_pdf
 from agency_tracking.roles import CV, require_internal_staff
 from agency_tracking.state_machine import transition
+from agency_tracking.db_errors import reraise_if_db_abort
 
 CV_TEMPLATE = "templates/cv_template.html"
 
@@ -95,24 +96,21 @@ def _render_cv_pdf(applicant):
 
 
 def _attach_cv_pdf(cv, applicant, pdf_bytes):
-	"""Saves generated CV PDF as a Frappe private file and links to CV Record."""
-	filename = f"{cv.name}.pdf"
-	try:
-		file_doc = frappe.get_doc(
-			{
-				"doctype": "File",
-				"file_name": filename,
-				"attached_to_doctype": "CV Record",
-				"attached_to_name": cv.name,
-				"content": pdf_bytes,
-				"is_private": 1,
-			}
-		).insert(ignore_permissions=True)
-		url = file_doc.file_url
-	except Exception:
-		url = f"/private/files/{filename}"
-	frappe.db.set_value("CV Record", cv.name, "cv_pdf_url", url)
-	return url
+	"""Saves generated CV PDF as a Frappe private file and links to CV Record. A failed save is
+	not caught here: recording a link to a file that was never stored (as this used to) is worse
+	than no link. generate_cv logs the failure and the CV Record simply has no PDF yet."""
+	file_doc = frappe.get_doc(
+		{
+			"doctype": "File",
+			"file_name": f"{cv.name}.pdf",
+			"attached_to_doctype": "CV Record",
+			"attached_to_name": cv.name,
+			"content": pdf_bytes,
+			"is_private": 1,
+		}
+	).insert(ignore_permissions=True)
+	frappe.db.set_value("CV Record", cv.name, "cv_pdf_url", file_doc.file_url)
+	return file_doc.file_url
 
 
 @frappe.whitelist()
@@ -161,7 +159,8 @@ def generate_cv(applicant_name=None, override_ban=False, override_reason=None, *
 		cv.reload()  # _attach_cv_pdf writes cv_pdf_url via frappe.db.set_value, which bumps
 		# `modified` underneath this in-memory doc -- reload before submit() or Frappe's
 		# optimistic-lock check_if_latest() sees a stale timestamp and throws.
-	except Exception:
+	except Exception as exc:
+		reraise_if_db_abort(exc)
 		# PDF rendering is a real deliverable, not best-effort decoration -- but a rendering
 		# failure (e.g. wkhtmltopdf missing) must never block the actual CV Generated
 		# transition, which is the load-bearing business event here.

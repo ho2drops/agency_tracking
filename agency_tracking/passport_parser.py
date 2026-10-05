@@ -11,6 +11,7 @@ import requests
 
 import frappe
 from frappe.utils import getdate
+from agency_tracking.db_errors import reraise_if_db_abort
 
 try:
 	from passporteye import read_mrz
@@ -217,7 +218,7 @@ def parse_mrz_date(yymmdd_str, is_expiry=False):
 
 		full_year = century + yy
 		return f"{full_year:04d}-{mm:02d}-{dd:02d}"
-	except Exception:
+	except (ValueError, TypeError):
 		return None
 
 
@@ -240,7 +241,7 @@ def infer_passport_issue_date(passport_expiry_str):
 		from dateutil.relativedelta import relativedelta
 		exp_date = getdate(passport_expiry_str)
 		return str(exp_date - relativedelta(years=5) + relativedelta(days=1))
-	except Exception:
+	except (ValueError, TypeError, OverflowError, frappe.ValidationError):
 		return None
 
 
@@ -654,11 +655,11 @@ def normalize_date_string(date_str):
 			else:
 				day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
 			return str(datetime.date(year, month, day))
-	except Exception:
+	except (ValueError, TypeError):
 		pass
 	try:
 		return str(getdate(d))
-	except Exception:
+	except (ValueError, TypeError, OverflowError, frappe.ValidationError):
 		return None
 
 
@@ -843,7 +844,8 @@ def _resolve_country_name(alpha_3: str) -> str | None:
 		try:
 			if getattr(frappe, "db", None) and frappe.db and frappe.db.exists("Country", candidate):
 				return candidate
-		except Exception:
+		except Exception as exc:
+			reraise_if_db_abort(exc)
 			pass
 		return candidate
 
@@ -856,16 +858,19 @@ def _resolve_country_name(alpha_3: str) -> str | None:
 						name = frappe.db.get_value("Country", {"code": country.alpha_2.lower()}, "name")
 						if name:
 							return name
-				except Exception:
+				except Exception as exc:
+					reraise_if_db_abort(exc)
 					pass
 				return country.name
-		except Exception:
+		except Exception as exc:
+			reraise_if_db_abort(exc)
 			pass
 
 	try:
 		if getattr(frappe, "db", None) and frappe.db:
 			return frappe.db.get_value("Country", {"name": ["like", f"{clean}%"]}, "name")
-	except Exception:
+	except Exception as exc:
+		reraise_if_db_abort(exc)
 		pass
 
 	return None

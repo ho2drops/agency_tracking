@@ -19,6 +19,7 @@
 import mimetypes
 
 import frappe
+from agency_tracking.db_errors import reraise_if_db_abort
 
 STORAGE_CATEGORIES = {"cv", "injaz", "finance-receipts", "contracts", "visas", "photos", "videos"}
 
@@ -299,7 +300,8 @@ def migrate_attach_to_r2(doc, fieldname, category, applicant_name=None):
 		frappe.db.delete("File", {"name": file_name})
 		frappe.db.after_commit.add(file_doc._delete_file_on_disk)
 		frappe.db.after_rollback.add(lambda: _delete_r2_object_quietly(key))
-	except Exception:
+	except Exception as exc:
+		reraise_if_db_abort(exc)
 		frappe.log_error(title="R2 receipt migration failed", message=f"{doc.doctype} {doc.name} {fieldname}")
 
 

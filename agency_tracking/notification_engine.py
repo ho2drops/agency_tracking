@@ -21,6 +21,7 @@ import frappe
 from frappe.utils import add_to_date, cint, now_datetime
 
 from agency_tracking.labels import candidate_label, step_label, user_label, without_record_ids
+from agency_tracking.db_errors import reraise_if_db_abort
 
 # How long a push service should hold an undelivered notification for an offline recipient
 # before giving up, per RFC 8030. pywebpush defaults to 0 ("now or never") if not overridden.
@@ -76,6 +77,7 @@ def attempt_push_delivery(log):
 		log.status = "Sent"
 		log.error = None
 	except Exception as e:
+		reraise_if_db_abort(e)
 		log.status = "Failed"
 		log.attempts = (log.attempts or 0) + 1
 		log.error = str(e)[:500]

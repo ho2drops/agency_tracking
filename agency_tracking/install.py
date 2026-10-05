@@ -2,6 +2,7 @@
 # License: MIT. See LICENSE
 
 import frappe
+from agency_tracking.db_errors import reraise_if_db_abort
 
 # Part G RBAC table, pre-declared in full (see BUILD_LOG.md "Standing decisions") — the
 # roles that don't have logic attached yet simply sit unused until their build step.
@@ -133,7 +134,8 @@ def configure_session_expiry():
 		settings.session_expiry = "24:00"
 		settings.flags.ignore_mandatory = True
 		settings.save(ignore_permissions=True)
-	except Exception:
+	except Exception as exc:
+		reraise_if_db_abort(exc)
 		frappe.db.set_single_value("System Settings", "session_expiry", "24:00")
 		frappe.defaults.set_global_default("session_expiry", "24:00")
 	frappe.db.commit()

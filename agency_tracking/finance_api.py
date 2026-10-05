@@ -24,7 +24,7 @@ from agency_tracking.finance_engine import (
 from agency_tracking.pagination import count_rows, page_args, paged_result
 from agency_tracking.roles import require_internal_staff
 from agency_tracking.state_machine import log_action, transition
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 
 def _positive_decimal(value, label):
@@ -35,7 +35,7 @@ def _positive_decimal(value, label):
 		frappe.throw(f"{label} is required.", frappe.ValidationError)
 	try:
 		value = Decimal(str(value).strip())
-	except Exception:
+	except (InvalidOperation, TypeError, ValueError):
 		frappe.throw(f"{label} must be a number.", frappe.ValidationError)
 	if not value.is_finite() or value <= 0:
 		frappe.throw(f"{label} must be greater than zero.", frappe.ValidationError)

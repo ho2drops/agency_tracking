@@ -23,6 +23,7 @@ from agency_tracking import clearance_api
 from agency_tracking.agency_tracking.doctype.clearance_step.clearance_step import CLEARANCE_ROLE_BY_STEP_TYPE
 from agency_tracking.pagination import count_rows, page_args, paged_result, require_list_permission
 from agency_tracking.state_machine import CLEARANCE_STEP_DONE_STATUSES
+from agency_tracking.db_errors import reraise_if_db_abort
 
 MANAGEMENT = {"Manager", "Admin", "System Manager"}
 LMIS_APPLICANT_ROLES = {"Saudi LMIS", "Kuwait LMIS", "Manager", "Admin"}
@@ -408,6 +409,7 @@ def save_clearance_grid(changes=None, **kwargs):
 			_apply_row(step, fields, change.get("override_reason"), cell)
 			result["ok"] = True
 		except Exception as e:
+			reraise_if_db_abort(e)
 			frappe.db.rollback(save_point=save_point)
 			frappe.clear_last_message()
 			result["error"] = str(e) or type(e).__name__

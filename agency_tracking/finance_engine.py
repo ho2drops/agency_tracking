@@ -8,7 +8,7 @@
 
 import frappe
 from frappe.utils import today
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from agency_tracking.db_errors import reraise_if_db_abort
 from agency_tracking.state_machine import TRANSITION_SIDE_EFFECTS, lock_doc_row, log_action, sanctioned_write
@@ -60,7 +60,7 @@ def positive_rate(value):
 
 	try:
 		rate = Decimal(str(value).strip())
-	except Exception:
+	except (InvalidOperation, TypeError, ValueError):
 		frappe.throw("rate_to_birr must be a number.", frappe.ValidationError)
 	if not rate.is_finite() or rate <= 0:
 		frappe.throw("rate_to_birr must be greater than zero.", frappe.ValidationError)
@@ -173,7 +173,8 @@ def fetch_daily_fx_rates():
 				rate_to_birr = round(Decimal("1.0") / Decimal(str(foreign_per_etb)), 6)
 				record_fx_rate(currency, rate_to_birr, rate_date)
 				recorded[currency] = float(rate_to_birr)
-	except Exception:
+	except Exception as exc:
+		reraise_if_db_abort(exc)
 		frappe.log_error(title="fetch_daily_fx_rates failed")
 	return recorded
 

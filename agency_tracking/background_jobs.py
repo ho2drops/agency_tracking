@@ -17,6 +17,7 @@
 
 import frappe
 from frappe.utils import now_datetime
+from agency_tracking.db_errors import reraise_if_db_abort
 
 NOTIFY_TEMPLATE = "background_job_completed"
 
@@ -172,7 +173,8 @@ def run_background_job(bg_job):
 				"reference_name": job.reference_name,
 			},
 		)
-	except Exception:
+	except Exception as exc:
+		reraise_if_db_abort(exc)
 		frappe.log_error(title="Background Job notify failed")
 
 

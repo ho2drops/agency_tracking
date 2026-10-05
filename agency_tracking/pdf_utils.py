@@ -11,6 +11,7 @@ import os
 
 import frappe
 from frappe.utils.pdf import get_pdf
+from agency_tracking.db_errors import reraise_if_db_abort
 
 # Code128 module patterns (values 0-106). Each string is six digits: alternating bar/space widths
 # in modules, starting with a bar. 103=Start B, 106=Stop (with its trailing bar).
@@ -146,7 +147,8 @@ def attach_datauri(url):
 	try:
 		file_doc = frappe.get_doc("File", file_name)
 		content = file_doc.get_content()
-	except Exception:
+	except Exception as exc:
+		reraise_if_db_abort(exc)
 		frappe.log_error(title="attach_datauri: could not read file", message=f"{url} ({file_name})")
 		return None
 
@@ -199,7 +201,8 @@ def embed_image_datauri(url, max_dimension=1000, jpeg_quality=82):
 		try:
 			file_doc = frappe.get_doc("File", file_name)
 			content = file_doc.get_content()
-		except Exception:
+		except Exception as exc:
+			reraise_if_db_abort(exc)
 			frappe.log_error(title="embed_image_datauri: could not read file", message=source_label)
 			return None
 

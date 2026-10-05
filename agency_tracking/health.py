@@ -23,7 +23,7 @@ def health_check():
 
 	try:
 		version = frappe.get_attr("agency_tracking.__version__")
-	except Exception:
+	except (AttributeError, ImportError):
 		version = None
 
 	return {

@@ -12,6 +12,7 @@ from agency_tracking.pagination import require_list_permission
 from agency_tracking.agency_tracking.doctype.clearance_step.clearance_step import CLEARANCE_ROLE_BY_STEP_TYPE
 from agency_tracking.pdf_utils import asset_datauri, code128_b_datauri, embed_image_datauri, render_pdf
 from agency_tracking.roles import require_internal_staff
+from agency_tracking.db_errors import reraise_if_db_abort
 from agency_tracking.state_machine import (
 	assert_clearance_step_not_terminal,
 	auto_advance_placement_if_ready,
@@ -424,7 +425,8 @@ def _renotify_reopened_step(step, previous_completed_by):
 			_engine_assign_clearance_step(step.name, previous_completed_by)
 		if role:
 			_broadcast_todo_to_role_holders(step.name, role)
-	except Exception:
+	except Exception as exc:
+		reraise_if_db_abort(exc)
 		frappe.log_error(title="Reopen re-notify failed", message=f"{step.name}: {frappe.get_traceback()}")
 
 

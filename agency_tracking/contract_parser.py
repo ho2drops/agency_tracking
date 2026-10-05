@@ -345,12 +345,12 @@ def normalize_date_string(date_str):
 
 			dt = datetime.date(year, month, day)
 			return str(dt)
-	except Exception:
+	except (ValueError, TypeError):
 		pass
 
 	try:
 		return str(getdate(d))
-	except Exception:
+	except (ValueError, TypeError, OverflowError, frappe.ValidationError):
 		return None
 
 
@@ -394,7 +394,7 @@ def calculate_contract_end_date(contract_date, duration_str="2 Years"):
 			return str(start + relativedelta(years=years))
 		else:
 			return str(start + relativedelta(years=2))
-	except Exception:
+	except (ValueError, TypeError, OverflowError, frappe.ValidationError):
 		return None
 
 
@@ -421,7 +421,7 @@ def _search(pattern, text, flags=re.IGNORECASE):
 	try:
 		match = re.search(pattern, text, flags)
 		return clean_extracted_value(match.group(1)) if match else None
-	except Exception:
+	except IndexError:  # the pattern has no group 1; a malformed pattern must fail loudly
 		return None
 
 
@@ -499,7 +499,7 @@ def extract_saudi_fields(text):
 			data["contract_salary_amount"] = decimal.Decimal(salary_match.group(1).replace(",", ""))
 			curr = salary_match.group(2).strip().upper()
 			data["contract_salary_currency"] = "SAR" if "RIYAL" in curr or "SAR" in curr or "ريال" in curr else curr
-		except Exception:
+		except decimal.InvalidOperation:
 			pass
 	else:
 		sal_val = _search(r"(?:monthly\s*salary|basic\s*salary|الراتب\s*الشهري)\s*[:=\-–]?\s*(\d+)", text)
@@ -507,7 +507,7 @@ def extract_saudi_fields(text):
 			try:
 				data["contract_salary_amount"] = decimal.Decimal(sal_val)
 				data["contract_salary_currency"] = "SAR"
-			except Exception:
+			except decimal.InvalidOperation:
 				pass
 
 	return {k: v for k, v in data.items() if v is not None}
@@ -536,7 +536,7 @@ def extract_kuwait_fields(text):
 	if sal_amt:
 		try:
 			data["contract_salary_amount"] = decimal.Decimal(sal_amt)
-		except Exception:
+		except decimal.InvalidOperation:
 			pass
 
 	curr_match = _search(r"Monthly\s*salary\s*:?\s*\d+\s*([A-Z]{2,3})", text)
