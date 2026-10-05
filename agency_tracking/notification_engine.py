@@ -25,6 +25,7 @@ from frappe.utils import add_to_date, now_datetime
 PUSH_TTL_SECONDS = 24 * 60 * 60
 
 
+NOTIFICATIONS_PAGE = "/notifications"
 def notify(user, template, context, channel="Push", immediate=False):
 	"""Records the notification now and hands the sending to the background worker, so whoever
 	triggered it (an assignment to a whole role, a ban event to every Manager) does not wait ~1.5 s
@@ -239,7 +240,9 @@ def _deliver_push(log):
 	vapid_claims = {"sub": f"mailto:{config.vapid_claims_email}"}
 	context = frappe.parse_json(log.context) if log.context else {}
 	title, body = _render_notification(log.template, context)
-	payload = frappe.as_json({"title": title, "body": body})
+	# `url` is what the service worker opens on click: the Notifications page, where every push
+	# the user was sent is listed.
+	payload = frappe.as_json({"title": title, "body": body, "url": NOTIFICATIONS_PAGE})
 
 	errors = []
 	for sub in subscriptions:
