@@ -18,7 +18,7 @@
 # triggers.
 
 import frappe
-from frappe.utils import now_datetime
+from frappe.utils import add_to_date, now_datetime
 
 # How long a push service should hold an undelivered notification for an offline recipient
 # before giving up, per RFC 8030. pywebpush defaults to 0 ("now or never") if not overridden.
@@ -313,17 +313,38 @@ def register_push_subscription(user, endpoint, p256dh, auth):
 				"auth": auth,
 			}
 		).insert(ignore_permissions=True)
-	retry_pending_notifications(user)
+	retry_pending_notifications_later(user)
 
 
 def retry_pending_notifications(user):
 	"""Part E: "retried on next login and on new Push Subscription registration" — covers
-	'notify even if offline, deliver once back online' uniformly."""
-	pending = frappe.get_all("Comms Log", filters={"recipient": user, "status": ["in", ["Pending", "Failed"]]})
+	'notify even if offline, deliver once back online'. Only what is younger than PUSH_TTL_SECONDS:
+	the same window the push service itself holds a message for. Older rows stay as history and are
+	never pushed, so enabling push does not replay months of backlog at once."""
+	pending = frappe.get_all(
+		"Comms Log",
+		filters={
+			"recipient": user,
+			"channel": "Push",
+			"status": ["in", ["Pending", "Failed"]],
+			"creation": [">=", add_to_date(now_datetime(), seconds=-PUSH_TTL_SECONDS)],
+		},
+		order_by="creation asc",
+	)
 	for row in pending:
 		attempt_push_delivery(frappe.get_doc("Comms Log", row.name))
 
 
+def retry_pending_notifications_later(user):
+	"""The retry as a background job: sign-in and subscribe return without waiting for it."""
+	frappe.enqueue(
+		"agency_tracking.notification_engine.retry_pending_notifications",
+		queue="short",
+		enqueue_after_commit=True,
+		user=user,
+	)
+
+
 def retry_pending_notifications_on_login(login_manager):
 	"""hooks.py on_login — Frappe passes the LoginManager, whose .user is the logged-in user."""
-	retry_pending_notifications(login_manager.user)
+	retry_pending_notifications_later(login_manager.user)
