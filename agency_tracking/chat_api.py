@@ -19,6 +19,11 @@ from agency_tracking.chat_engine import (
 from agency_tracking.roles import require_internal_staff
 
 
+# Who may read threads they are not in. Admin / Manager / System Manager: every thread.
+# Communication Manager: agency threads only.
+FULL_OVERSIGHT_ROLES = {"Admin", "Manager", "System Manager", "Administrator"}
+AGENCY_OVERSIGHT_ROLE = "Communication Manager"
+
 def _linked_contractor(user):
 	if user == "Administrator":
 		return None
@@ -152,13 +157,21 @@ def _participants_by_thread(thread_names):
 
 @frappe.whitelist()
 def list_all_threads():
-	"""Agency-wide thread listing for oversight roles (Admin, Manager, Communication Manager, System Manager)."""
-	oversight_roles = {"Admin", "Manager", "Communication Manager", "System Manager", "Administrator"}
-	if not (oversight_roles & set(frappe.get_roles())):
+	"""Thread listing for the oversight roles: every thread for Admin / Manager / System Manager;
+	every agency thread, plus the threads they are in, for a Communication Manager (D-19)."""
+	roles = set(frappe.get_roles())
+	if not ((FULL_OVERSIGHT_ROLES | {AGENCY_OVERSIGHT_ROLE}) & roles):
 		frappe.throw("Not permitted.", frappe.PermissionError)
 
+	or_filters = None
+	if not (FULL_OVERSIGHT_ROLES & roles):
+		own = frappe.get_all(
+			"Chat Thread Participant", filters={"user": frappe.session.user, "parenttype": "Chat Thread"}, pluck="parent"
+		)
+		or_filters = {"thread_type": "Agency", "name": ["in", own or [""]]}
 	threads = frappe.get_all(
 		"Chat Thread",
+		or_filters=or_filters,
 		fields=["name", "thread_type", "contractor", "context_type", "context_reference", "last_message_at", "creation"],
 		order_by="last_message_at desc, creation desc",
 	)
@@ -195,13 +208,16 @@ def get_thread_participants(thread_name=None, **kwargs):
 
 
 def _readable_thread(thread_name):
-	"""Thread read gate: participants, plus the oversight roles."""
+	"""Thread read gate: participants; Admin / Manager / System Manager for any thread; a
+	Communication Manager for any agency thread, but not a private staff thread it is not in (D-19)."""
 	if not thread_name:
 		frappe.throw("thread_name is required.", frappe.ValidationError)
-	oversight_roles = {"Admin", "Manager", "Communication Manager", "System Manager", "Administrator"}
-	if not (oversight_roles & set(frappe.get_roles())) and not is_participant(frappe.session.user, thread_name):
-		frappe.throw("Not permitted.", frappe.PermissionError)
-	return thread_name
+	roles = set(frappe.get_roles())
+	if FULL_OVERSIGHT_ROLES & roles or is_participant(frappe.session.user, thread_name):
+		return thread_name
+	if AGENCY_OVERSIGHT_ROLE in roles and frappe.db.get_value("Chat Thread", thread_name, "thread_type") == "Agency":
+		return thread_name
+	frappe.throw("Not permitted.", frappe.PermissionError)
 
 
 @frappe.whitelist()

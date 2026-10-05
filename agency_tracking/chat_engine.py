@@ -25,7 +25,8 @@ def validate_thread_participants(requester, other_user):
 	if requester_is_agency:
 		if other_is_agency:
 			frappe.throw("Agencies cannot message each other.", frappe.ValidationError)
-		if not ({"Communication Manager", "Admin"} & set(frappe.get_roles(other_user))):
+		# Communication Manager only (D-21): an agency never gets a direct line to an Admin.
+		if "Communication Manager" not in frappe.get_roles(other_user):
 			frappe.throw("Agencies can only message a Communication Manager.", frappe.ValidationError)
 
 
@@ -37,8 +38,9 @@ def route_agency_to_communication_manager(contractor_name):
 	if contractor.communication_manager:
 		return contractor.communication_manager
 
-	# If initiating caller is Administrator or internal Communication Manager / Admin, assign them
-	if frappe.session.user == "Administrator" or bool({"Communication Manager", "Admin", "System Manager"} & set(frappe.get_roles())):
+	# A Communication Manager who opens the thread takes it. Anyone else opening it for the agency
+	# (Admin, Manager) hands it to a Communication Manager below, never to themselves (D-21).
+	if frappe.session.user != "Administrator" and "Communication Manager" in frappe.get_roles():
 		return frappe.session.user
 
 	managers = sorted(
