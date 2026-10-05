@@ -18,7 +18,7 @@
 # triggers.
 
 import frappe
-from frappe.utils import add_to_date, now_datetime
+from frappe.utils import add_to_date, cint, now_datetime
 
 from agency_tracking.labels import candidate_label, step_label, user_label, without_record_ids
 
@@ -153,7 +153,12 @@ def _render_notification(template, context):
 	context = context or {}
 	who = candidate_label(context.get("applicant"), context.get("placement"), context.get("clearance_step"))
 	if template == "medical_expiry_warning":
-		return "Medical Expiry Warning", f"{who}: medical clearance expires in {context.get('days_remaining')} day(s)."
+		days = cint(context.get("days_remaining"))
+		if days > 0:
+			return "Medical Expiry Warning", f"{who}: medical clearance expires in {days} day(s)."
+		if days == 0:
+			return "Medical Expiry Warning", f"{who}: medical clearance expires today."
+		return "Medical Expiry Warning", f"{who}: medical clearance expired {-days} day(s) ago."
 	if template == "contract_age_alert":
 		return (
 			"Contract Age Alert",

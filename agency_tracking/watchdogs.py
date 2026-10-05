@@ -14,7 +14,8 @@ from agency_tracking.labels import candidate_label
 from agency_tracking.notification_engine import notify, whatsapp_configured
 from agency_tracking.notification_feed import _tier_for
 
-MEDICAL_EXPIRY_TIERS_DAYS = [14, 10, 7, 3, 1]
+# 0 = the expiry day itself ("expires today"); nothing is sent after it except that one reminder late.
+MEDICAL_EXPIRY_TIERS_DAYS = [14, 10, 7, 3, 1, 0]
 
 
 def _sent_today(template):
@@ -56,7 +57,11 @@ def _countdown_reminders(template, tiers):
 	sent for this placement and date. On a run that follows every day this is exactly "today is a
 	tier day". After a missed day it sends the missed reminder late, once, with the true days
 	remaining -- never one per missed tier. A changed date (renewed medical, new appointment)
-	counts down on its own. One Comms Log query per run."""
+	counts down on its own. One Comms Log query per run.
+
+	The countdown ends at the last tier. With a 0 tier (the day itself) a missed last reminder can
+	still go out after the date, once, with a negative days_remaining; callers bound how late by
+	the dates they pass in. Without one, nothing is sent on or after the date."""
 	send = _daily_notifier(template)
 	sent = set()
 	for row in frappe.get_all(
@@ -70,11 +75,14 @@ def _countdown_reminders(template, tiers):
 			continue
 		# Rows written before `tier` / `due_date` were stored were only ever sent on the tier day.
 		due_date = ctx.get("due_date") or add_days(getdate(row.creation), cint(days))
-		sent.add((ctx.get("placement"), cint(ctx.get("tier") or days), str(getdate(due_date))))
+		tier = ctx.get("tier")  # may be 0, the day itself
+		sent.add((ctx.get("placement"), cint(days if tier is None else tier), str(getdate(due_date))))
 
 	def due_tier(placement, due_date):
 		days_remaining = (getdate(due_date) - getdate(today())).days
-		tier = _tier_for(days_remaining, tiers) if days_remaining >= 1 else None
+		# Past the last tier only a 0 tier (the day itself) can still be owed, late.
+		past_countdown = days_remaining < min(tiers) and min(tiers) > 0
+		tier = None if past_countdown else _tier_for(days_remaining, tiers)
 		if tier is None or (placement, tier, str(getdate(due_date))) in sent:
 			return None, None
 		return tier, days_remaining
@@ -98,8 +106,9 @@ def _management_recipients():
 
 
 def medical_expiry_watchdog():
-	"""Applicant.medical_expiry_date reaching one of the 14/10/7/3/1-day tiers (a missed day is
-	made up for, see _countdown_reminders). Only meaningful for applicants who've been selected
+	"""Applicant.medical_expiry_date reaching one of the 14/10/7/3/1-day tiers or the expiry day
+	itself (a missed day is made up for, see _countdown_reminders; a missed expiry-day reminder
+	goes out late for as long as the sent-reminder lookback reaches, then never). Only meaningful for applicants who've been selected
 	(active_placement set) and NOT yet Departed -- an expiring medical no longer matters once the
 	worker has flown. Goes to the LMIS officer plus Manager + Admin for management visibility
 	(2026-09-05)."""
@@ -107,7 +116,10 @@ def medical_expiry_watchdog():
 	applicants = frappe.get_all(
 		"Applicant",
 		filters={
-			"medical_expiry_date": ["between", [add_days(today(), 1), add_days(today(), max(MEDICAL_EXPIRY_TIERS_DAYS))]],
+			"medical_expiry_date": [
+				"between",
+				[add_days(today(), -max(MEDICAL_EXPIRY_TIERS_DAYS)), add_days(today(), max(MEDICAL_EXPIRY_TIERS_DAYS))],
+			],
 			"active_placement": ["is", "set"],
 		},
 		fields=["name", "active_placement", "full_name", "medical_expiry_date"],
