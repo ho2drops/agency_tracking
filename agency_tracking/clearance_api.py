@@ -218,7 +218,7 @@ def start_clearance_step(clearance_step_name=None, step_name=None, name=None, **
 def submit_embassy_step(clearance_step_name=None, override_reason=None, **kwargs):
 	"""Documents submitted (Monday). Saudi/Kuwait Embassy only."""
 	clearance_step_name = clearance_step_name or kwargs.get("name") or kwargs.get("clearance_step")
-	step = _load_actionable_step(clearance_step_name, {"Embassy", "Kuwait Embassy", "Saudi Embassy"})
+	step = _load_actionable_step(clearance_step_name, {"Embassy", "Kuwait Embassy"})
 	if not _can_act_on_step(step):
 		frappe.throw("Not permitted.", frappe.PermissionError)
 	if step.status == "Submitted":
@@ -299,7 +299,7 @@ def stamp_embassy_step(clearance_step_name=None, reference_no=None, override_rea
 	"""Documents returned stamped (Thursday) -- the success outcome."""
 	clearance_step_name = clearance_step_name or kwargs.get("name") or kwargs.get("clearance_step")
 	reference_no = reference_no or kwargs.get("visa_number") or kwargs.get("reference")
-	step = _load_actionable_step(clearance_step_name, {"Embassy", "Kuwait Embassy", "Saudi Embassy"})
+	step = _load_actionable_step(clearance_step_name, {"Embassy", "Kuwait Embassy"})
 	if not _can_act_on_step(step):
 		frappe.throw("Not permitted.", frappe.PermissionError)
 	is_correction = step.status == "Stamped"

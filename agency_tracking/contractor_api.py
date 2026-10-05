@@ -23,7 +23,10 @@ def create_contractor(contractor_name=None, country=None, user_email=None, user_
 		frappe.throw("Not permitted.", frappe.PermissionError)
 
 	contractor_name = contractor_name or kwargs.get("name") or f"Agency {frappe.generate_hash(length=5)}"
-	country = country or kwargs.get("destination_country") or "Saudi Arabia"
+	country = country or kwargs.get("destination_country")
+	if not country:
+		# An agency works one country; guessing one (it used to become Saudi Arabia) mis-files it (S-25).
+		frappe.throw("country is required.", frappe.ValidationError)
 	user_email = user_email or kwargs.get("email") or kwargs.get("user") or f"agency.{frappe.generate_hash(length=5)}@example.local"
 	user_first_name = user_first_name or kwargs.get("first_name") or contractor_name
 

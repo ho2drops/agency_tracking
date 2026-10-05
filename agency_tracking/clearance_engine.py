@@ -64,7 +64,10 @@ def _broadcast_todo_to_role_holders(clearance_step_name, role):
 	UX, none of them "own" the row exclusively the way assign_clearance_step's single-officer
 	model does. The two mechanisms never conflict because ToDo here is notification-only."""
 	label = f"{_step_label(clearance_step_name)} ({role})"
-	for user in frappe.get_all("Has Role", filters={"role": role}, pluck="parent"):
+	holders = frappe.get_all("Has Role", filters={"role": role, "parenttype": "User"}, pluck="parent")
+	# A disabled account cannot work the step, so it gets no task and no notification (S-25).
+	enabled = frappe.get_all("User", filters={"name": ["in", holders or [""]], "enabled": 1}, pluck="name")
+	for user in enabled:
 		frappe.get_doc(
 			{
 				"doctype": "ToDo",
