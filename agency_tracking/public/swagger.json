@@ -5473,6 +5473,88 @@
         ]
       }
     },
+    "/api/method/agency_tracking.portal_api.list_my_complaints": {
+      "post": {
+        "tags": [
+          "Portal (Foreign Agency)"
+        ],
+        "summary": "List the agency's own complaints, oldest first",
+        "description": "Optional status. Each row names the worker (full_name, passport_number, target_job). The staff complaint lists refuse a Foreign Agency.",
+        "x-roles": [
+          "Foreign Agency"
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded",
+          "application/json"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted (role/permission check failed)"
+          },
+          "417": {
+            "description": "Validation error (business rule violated)"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/api/method/agency_tracking.portal_api.get_my_owed_commissions": {
+      "post": {
+        "tags": [
+          "Portal (Foreign Agency)"
+        ],
+        "summary": "List the commissions the agency owes that are not on an invoice yet",
+        "description": "Rows: placement, amount_original, currency_original, creation, plus the worker's full_name, passport_number and target_job. Amounts are in the agency's own currency.",
+        "x-roles": [
+          "Foreign Agency"
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded",
+          "application/json"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted (role/permission check failed)"
+          },
+          "417": {
+            "description": "Validation error (business rule violated)"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/api/method/agency_tracking.portal_api.list_portal_candidates": {
       "post": {
         "tags": [
@@ -8420,7 +8502,7 @@
           "Portal (Foreign Agency)"
         ],
         "summary": "List placements owned by the calling foreign agency",
-        "description": "Returns reserved and active candidate placements belonging to the foreign agency session. Paging (2026-09-23): limit_start / limit_page_length (max 500) / with_total.",
+        "description": "Returns reserved and active candidate placements belonging to the foreign agency session. Paging (2026-09-23): limit_start / limit_page_length (max 500) / with_total. Each row also carries the worker's full_name, passport_number and target_job.",
         "x-roles": [
           "Foreign Agency",
           "Manager",

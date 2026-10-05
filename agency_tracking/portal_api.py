@@ -137,6 +137,29 @@ PORTAL_PLACEMENT_FIELDS = [
 	"departed_on",
 ]
 
+# Who a portal row is about. An agency reads its own placements, complaints and owed commissions
+# by the worker's name and passport, so every such row carries these (see _name_people).
+PORTAL_PERSON_FIELDS = ["full_name", "passport_number", "target_job"]
+
+# Fields a Foreign Agency may see on its OWN complaints (portal_api.list_my_complaints).
+PORTAL_COMPLAINT_FIELDS = [
+	"name",
+	"display_no",
+	"placement",
+	"contractor",
+	"raised_by",
+	"worker_status_at_complaint",
+	"description",
+	"status",
+	"resolution_notes",
+	"resolved_on",
+	"creation",
+]
+
+# What an agency sees of a commission it owes: the amount in its own currency, never the internal
+# Birr figure or exchange rate.
+PORTAL_OWED_FIELDS = ["placement", "amount_original", "currency_original", "creation"]
+
 
 def _get_contractor_for_session_user(contractor_override=None):
 	is_internal = frappe.session.user == "Administrator" or bool(
@@ -193,6 +216,30 @@ def _own_placement_or_403(placement_name, contractor):
 def _portal_placement(doc):
 	"""A Placement as the portal may see it: PORTAL_PLACEMENT_FIELDS only (P6-03)."""
 	return {k: doc.get(k) for k in PORTAL_PLACEMENT_FIELDS}
+
+
+def _name_people(rows, by_placement=False):
+	"""Add PORTAL_PERSON_FIELDS to each row, in one or two queries for the whole list. Rows carry
+	either `applicant`, or (by_placement) a `placement` whose applicant is looked up first."""
+	applicant_of = {}
+	if by_placement:
+		placements = list({r.get("placement") for r in rows if r.get("placement")})
+		if placements:
+			applicant_of = dict(
+				frappe.get_all("Placement", filters={"name": ["in", placements]}, fields=["name", "applicant"], as_list=True)
+			)
+	applicants = list({applicant_of.get(r.get("placement")) if by_placement else r.get("applicant") for r in rows} - {None})
+	people = {}
+	if applicants:
+		people = {
+			a.name: a
+			for a in frappe.get_all("Applicant", filters={"name": ["in", applicants]}, fields=["name"] + PORTAL_PERSON_FIELDS)
+		}
+	for r in rows:
+		person = people.get(applicant_of.get(r.get("placement")) if by_placement else r.get("applicant")) or {}
+		for field in PORTAL_PERSON_FIELDS:
+			r[field] = person.get(field)
+	return rows
 
 
 def _get_latest_cv_record(applicant_name):
@@ -498,7 +545,38 @@ def list_my_placements(status=None, limit_page_length=100, limit_start=0, order_
 		order_by=order_by,
 		ignore_permissions=True,
 	)
+	_name_people(rows)
 	return paged_result(rows, with_total, lambda: count_rows("Placement", filters, ignore_permissions=True))
+
+
+@frappe.whitelist()
+def list_my_complaints(status=None, contractor_name=None, **kwargs):
+	"""The agency's own complaints, oldest first, optionally one status. complaint_api's lists are
+	for the staff who handle complaints and refuse a Foreign Agency; this is the portal's read of
+	what the agency itself filed. The Contractor comes from the session user, as everywhere here."""
+	contractor = _get_contractor_for_session_user(contractor_override=contractor_name or kwargs.get("contractor"))
+	filters = {"contractor": contractor.name}
+	if status:
+		filters["status"] = status
+	rows = frappe.get_all(
+		"Complaint", filters=filters, fields=PORTAL_COMPLAINT_FIELDS, order_by="creation asc", ignore_permissions=True
+	)
+	return _name_people(rows, by_placement=True)
+
+
+@frappe.whitelist()
+def get_my_owed_commissions(contractor_name=None, **kwargs):
+	"""Commissions the agency owes that are not on an invoice yet, oldest first, in the agency's own
+	currency. Same pool Finance bills from (finance_engine.list_owed_commissions), cut down to
+	PORTAL_OWED_FIELDS."""
+	from agency_tracking.finance_engine import list_owed_commissions
+
+	contractor = _get_contractor_for_session_user(contractor_override=contractor_name or kwargs.get("contractor"))
+	rows = [
+		{field: row.get(field) for field in PORTAL_OWED_FIELDS}
+		for row in list_owed_commissions(contractor.name, contractor.country)
+	]
+	return _name_people(rows, by_placement=True)
 
 
 @frappe.whitelist()
