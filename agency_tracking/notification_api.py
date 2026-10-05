@@ -77,7 +77,7 @@ def send_test_push():
 	the "Test Alert" button genuinely prove whether server-to-device push works, instead of
 	passing even when the real pipeline is broken. Returns the resulting delivery status/error
 	so the frontend can show real feedback."""
-	log = _notify(frappe.session.user, "test_notification", {})
+	log = _notify(frappe.session.user, "test_notification", {}, immediate=True)
 	return {"status": log.status, "error": log.error}
 
 

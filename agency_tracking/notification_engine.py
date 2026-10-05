@@ -25,7 +25,12 @@ from frappe.utils import now_datetime
 PUSH_TTL_SECONDS = 24 * 60 * 60
 
 
-def notify(user, template, context, channel="Push"):
+def notify(user, template, context, channel="Push", immediate=False):
+	"""Records the notification now and hands the sending to the background worker, so whoever
+	triggered it (an assignment to a whole role, a ban event to every Manager) does not wait ~1.5 s
+	per push. `immediate=True` sends before returning -- only for a caller that reports the result
+	(send_test_push). A row the worker never reaches stays Pending and is picked up by
+	retry_pending_notifications."""
 	log = frappe.get_doc(
 		{
 			"doctype": "Comms Log",
@@ -36,8 +41,24 @@ def notify(user, template, context, channel="Push"):
 			"status": "Pending",
 		}
 	).insert(ignore_permissions=True)
-	attempt_push_delivery(log)
+	if immediate:
+		attempt_push_delivery(log)
+	else:
+		frappe.enqueue(
+			"agency_tracking.notification_engine.deliver",
+			queue="short",
+			enqueue_after_commit=True,
+			comms_log=log.name,
+		)
 	return log
+
+
+def deliver(comms_log):
+	"""Background job for one notification. The row is gone if the action that raised it was
+	rolled back, and already Sent if a retry got there first."""
+	if frappe.db.get_value("Comms Log", comms_log, "status") in (None, "Sent"):
+		return
+	attempt_push_delivery(frappe.get_doc("Comms Log", comms_log))
 
 
 def attempt_push_delivery(log):
