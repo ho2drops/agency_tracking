@@ -188,7 +188,9 @@ ALLOWED_TRANSITIONS = {
 	},
 }
 
-# (from_status, to_status) -> callable(doc) -> bool. Applicant's Draft->Registered move has no
+# (doctype, from_status, to_status) -> callable(doc) -> bool. Keyed by record type as well, so a
+# gate can never apply to another record type that happens to share a status pair (S-21).
+# Applicant's Draft->Registered move has no
 # cross-doctype gate (just the field-floor/medical check already in Applicant.validate()).
 # Registered->CV Generated is gated on cv_generation_gate (Standard track only, Step 2).
 # Placement's Ticketed->Departed is gated on medical_2_gate (Step 6). Processing->Stamped is
@@ -320,7 +322,7 @@ def _transition(doc, new_status, actor=None, override=False, override_reason=Non
 			frappe.ValidationError,
 		)
 
-	gate = STAGE_GATES.get((current_status, new_status))
+	gate = STAGE_GATES.get((doc.doctype, current_status, new_status))
 	gate_result = gate(doc) if gate else True
 	gate_passed = gate_result is True
 	is_override = bool(gate) and not gate_passed
@@ -416,7 +418,7 @@ def cv_generation_gate(applicant):
 	return True
 
 
-STAGE_GATES[("Registered", "CV Generated")] = cv_generation_gate
+STAGE_GATES[("Applicant", "Registered", "CV Generated")] = cv_generation_gate
 
 
 # --- Medical 2 gate (Part A.2 Stage 8 / Step 6) ---
@@ -451,7 +453,7 @@ def departure_gate(placement):
 	return passport_valid_for_departure(placement)
 
 
-STAGE_GATES[("Ticketed", "Departed")] = departure_gate
+STAGE_GATES[("Placement", "Ticketed", "Departed")] = departure_gate
 
 
 # --- Post-contract medical gate (2026-08-29, new) ---
@@ -485,7 +487,7 @@ def medical_selected_gate(placement):
 	)
 
 
-STAGE_GATES[("Selected", "Processing")] = medical_selected_gate
+STAGE_GATES[("Placement", "Selected", "Processing")] = medical_selected_gate
 
 
 # --- All-mandatory-clearance-steps-complete gate (Part A.2 Stage 6 / Step 7) ---
@@ -520,7 +522,7 @@ def all_mandatory_clearance_steps_complete(placement):
 	return True
 
 
-STAGE_GATES[("Processing", "Stamped")] = all_mandatory_clearance_steps_complete
+STAGE_GATES[("Placement", "Processing", "Stamped")] = all_mandatory_clearance_steps_complete
 
 
 # --- Auto-advance Processing -> Stamped (2026-09-10) ---
@@ -618,7 +620,7 @@ def stamped_to_ticketed_gate(placement):
 	return all_mandatory_clearance_steps_complete(placement)
 
 
-STAGE_GATES[("Stamped", "Ticketed")] = stamped_to_ticketed_gate
+STAGE_GATES[("Placement", "Stamped", "Ticketed")] = stamped_to_ticketed_gate
 
 
 # --- Free-replacement window gate (Part A.4 / Step 10) ---
@@ -644,7 +646,7 @@ def within_free_replacement_window(complaint):
 	)
 
 
-STAGE_GATES[("Unresolved", "Returned - Free Replacement Required")] = within_free_replacement_window
+STAGE_GATES[("Complaint", "Unresolved", "Returned - Free Replacement Required")] = within_free_replacement_window
 
 
 # --- Applicant cycle_number bump (2026-08-29 lifecycle spec) ---
