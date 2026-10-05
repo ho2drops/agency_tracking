@@ -7,7 +7,7 @@
 # that import ordering matters (same reasoning as clearance_engine's Step 7 registration).
 
 import frappe
-from frappe.utils import today
+from frappe.utils import cint, today
 from decimal import Decimal, InvalidOperation
 
 from agency_tracking.db_errors import reraise_if_db_abort
@@ -16,6 +16,36 @@ from agency_tracking.state_machine import TRANSITION_SIDE_EFFECTS, lock_doc_row,
 
 # --- FX rates (Part D: "live rate fetched at entry... as_of_date override for backdated
 # entries", Part H: "scheduled daily fetch from a currency API, cached") ---
+
+
+def birr_conversion_on():
+	"""Whether this deployment converts amounts to Birr: the "Convert amounts to Birr" tick box in
+	FX Rate Settings (Admin). Off (the default, D-30): every amount stays in the currency it was
+	entered in, no rate is looked up or required, nothing waits for one. Read uncached so a change
+	of the switch applies to the very next row."""
+	return bool(cint(frappe.db.get_single_value("FX Rate Settings", "convert_to_birr", cache=False)))
+
+
+def birr_fields(amount, currency, as_of_date=None, wait_for_rate=False):
+	"""The exchange-rate part of a new ledger row -- fx_rate, fx_rate_date, amount_birr,
+	awaiting_fx_rate -- for an amount in `currency`. Every writer of an Applicant Transaction
+	spreads this into the row, so pricing in Birr (or not) is decided in exactly one place.
+
+	Conversion off: no rate, no Birr amount, never waiting.
+	Conversion on: the rate of `as_of_date`; with no rate at all the row waits for one
+	(wait_for_rate, system-recorded amounts) or the call fails (staff entries, as before)."""
+	if not birr_conversion_on():
+		return {"fx_rate": 0, "fx_rate_date": None, "amount_birr": 0, "awaiting_fx_rate": 0}
+	rate, rate_date = (get_fx_rate_or_none if wait_for_rate else get_fx_rate)(currency, as_of_date)
+	if rate is None:
+		return {"fx_rate": 0, "fx_rate_date": None, "amount_birr": 0, "awaiting_fx_rate": 1}
+	rate = Decimal(str(rate))
+	return {
+		"fx_rate": rate,
+		"fx_rate_date": rate_date,
+		"amount_birr": round(Decimal(str(amount)) * rate, 2),
+		"awaiting_fx_rate": 0,
+	}
 
 
 def get_fx_rate(currency, as_of_date=None):
@@ -264,11 +294,6 @@ def accrue_commission(placement, from_status=None, actor=None):
 		return None  # idempotency guard — already accrued, early-trigger or Departed alike
 
 	amount, currency = get_commission_rate(placement)
-	# No FX rate yet: recorded in its own currency, awaiting the rate (converted by
-	# convert_awaiting_fx when one is recorded), like stage fees -- P4-09 / D-07.
-	fx_rate, fx_rate_date = get_fx_rate_or_none(currency)
-	awaiting_fx = fx_rate is None
-	fx_rate = Decimal("0") if awaiting_fx else Decimal(str(fx_rate))
 	with sanctioned_write():  # system-created Approved ledger row (QA A1)
 		txn = frappe.get_doc(
 			{
@@ -277,10 +302,9 @@ def accrue_commission(placement, from_status=None, actor=None):
 				"transaction_type": "Commission",
 				"amount_original": Decimal(str(amount)),
 				"currency_original": currency,
-				"fx_rate": fx_rate,
-				"fx_rate_date": fx_rate_date,
-				"amount_birr": round(Decimal(str(amount)) * fx_rate, 2),
-				"awaiting_fx_rate": 1 if awaiting_fx else 0,
+				# With conversion on and no FX rate yet it is recorded in its own currency,
+				# awaiting the rate, like stage fees (P4-09 / D-07).
+				**birr_fields(amount, currency, wait_for_rate=True),
 				"stage_logged_at": placement.status,
 				"logged_by": actor or frappe.session.user,
 				# System-computed, not a discretionary staff entry -- auto-Approved, skips the
@@ -307,9 +331,10 @@ def _owed_commission_filters(contractor_name, destination_country, currency=None
 		"transaction_type": "Commission",
 		"status": "Approved",
 		"commission_batch_request": ["is", "not set"],
-		# Invoiced only once it has its FX rate: the batch's Birr totals are fixed when it's built.
-		"awaiting_fx_rate": 0,
 	}
+	if birr_conversion_on():
+		# Invoiced only once it has its FX rate: the batch's Birr totals are fixed when it's built.
+		filters["awaiting_fx_rate"] = 0
 	if currency:
 		filters["currency_original"] = currency
 	return filters
@@ -491,7 +516,7 @@ def create_batch_request(
 		return batch
 
 	_lock_and_verify_unclaimed(transaction_names)
-	awaiting = frappe.get_all(
+	awaiting = birr_conversion_on() and frappe.get_all(
 		"Applicant Transaction", {"name": ["in", list(transaction_names)], "awaiting_fx_rate": 1}, pluck="name"
 	)
 	if awaiting:

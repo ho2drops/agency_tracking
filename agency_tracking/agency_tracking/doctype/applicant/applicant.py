@@ -297,9 +297,8 @@ class Applicant(Document):
 		):
 			return
 
-		from agency_tracking.finance_engine import get_fx_rate
+		from agency_tracking.finance_engine import birr_fields
 
-		fx_rate, fx_rate_date = get_fx_rate(self.fee_currency or "ETB")
 		txn = frappe.get_doc(
 			{
 				"doctype": "Applicant Transaction",
@@ -308,9 +307,7 @@ class Applicant(Document):
 				"transaction_type": self.fee_direction or "Income",
 				"amount_original": Decimal(str(self.registration_fee_amount)),
 				"currency_original": self.fee_currency or "ETB",
-				"fx_rate": Decimal(str(fx_rate)),
-				"fx_rate_date": fx_rate_date,
-				"amount_birr": round(Decimal(str(self.registration_fee_amount)) * Decimal(str(fx_rate)), 2),
+				**birr_fields(self.registration_fee_amount, self.fee_currency or "ETB"),
 				"description": (self.fee_type or "Registration Fee")
 				+ f" for {self.name}"
 				+ (f" -- {self.fee_notes}" if self.fee_notes else ""),
@@ -331,7 +328,7 @@ class Applicant(Document):
 		already has one gets its Status refreshed from the ledger's current state, so Finance
 		approving/rejecting/voiding on the Applicant Transaction itself is reflected back here
 		without the row itself ever needing another edit."""
-		from agency_tracking.finance_engine import get_fx_rate
+		from agency_tracking.finance_engine import birr_fields
 
 		for row in self.get("fee_log") or []:
 			if row.transaction:
@@ -343,7 +340,6 @@ class Applicant(Document):
 			if not (row.description and row.amount):
 				continue
 
-			fx_rate, fx_rate_date = get_fx_rate(row.currency or "ETB")
 			txn = frappe.get_doc(
 				{
 					"doctype": "Applicant Transaction",
@@ -352,9 +348,7 @@ class Applicant(Document):
 					"transaction_type": row.transaction_type or "Income",
 					"amount_original": Decimal(str(row.amount)),
 					"currency_original": row.currency or "ETB",
-					"fx_rate": Decimal(str(fx_rate)),
-					"fx_rate_date": fx_rate_date,
-					"amount_birr": round(Decimal(str(row.amount)) * Decimal(str(fx_rate)), 2),
+					**birr_fields(row.amount, row.currency or "ETB"),
 					"description": row.description,
 					"stage_logged_at": self.status,
 					"logged_by": frappe.session.user,

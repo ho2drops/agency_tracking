@@ -11,6 +11,7 @@ from agency_tracking.finance_engine import (
 	apply_batch_write_off,
 	create_batch_request,
 	fetch_daily_fx_rates,
+	birr_fields,
 	get_fx_rate as _get_fx_rate,
 	list_owed_commissions,
 	list_owed_commissions_by_currency,
@@ -74,7 +75,6 @@ def _log_stage_transaction(
 		elif applicant:
 			stage_value = frappe.db.get_value("Applicant", applicant, "status")
 
-	fx_rate, fx_rate_date = _get_fx_rate(currency)
 	txn = frappe.get_doc(
 		{
 			"doctype": "Applicant Transaction",
@@ -83,9 +83,7 @@ def _log_stage_transaction(
 			"transaction_type": transaction_type,
 			"amount_original": amount,
 			"currency_original": currency,
-			"fx_rate": Decimal(str(fx_rate)),
-			"fx_rate_date": fx_rate_date,
-			"amount_birr": round(amount * Decimal(str(fx_rate)), 2),
+			**birr_fields(amount, currency),
 			"description": description,
 			"stage_logged_at": stage_value,
 			"logged_by": frappe.session.user,

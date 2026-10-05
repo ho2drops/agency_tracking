@@ -76,17 +76,14 @@ def _record_fee(step, placement, row, injaz_attempt=None):
 
 	from decimal import Decimal
 
-	from agency_tracking.finance_engine import get_fx_rate_or_none
+	from agency_tracking.finance_engine import birr_fields
 
 	# "sp_" prefix: a bare hex hash like "234e0744ce" parses as a number and MariaDB rejects it as a
 	# SAVEPOINT name (found live 2026-09-19).
 	save_point = f"sp_{frappe.generate_hash(length=10)}"
 	try:
 		frappe.db.savepoint(save_point)
-		fx_rate, fx_rate_date = get_fx_rate_or_none(row.currency)
-		awaiting_fx = fx_rate is None
 		amount = Decimal(str(row.amount))
-		fx_rate = Decimal("0") if awaiting_fx else Decimal(str(fx_rate))
 		attempt_note = f", Injaz attempt {injaz_attempt.injaz_application_id or attempt_name}" if injaz_attempt else ""
 		with sanctioned_write():  # system-created Approved ledger row (QA A1)
 			txn = frappe.get_doc(
@@ -97,10 +94,7 @@ def _record_fee(step, placement, row, injaz_attempt=None):
 					"transaction_type": "Expense",
 					"amount_original": amount,
 					"currency_original": row.currency,
-					"fx_rate": fx_rate,
-					"fx_rate_date": fx_rate_date,
-					"amount_birr": round(amount * fx_rate, 2),
-					"awaiting_fx_rate": 1 if awaiting_fx else 0,
+					**birr_fields(amount, row.currency, wait_for_rate=True),
 					"description": f"{row.fee_type} -- {step.step_type} [{step.name}]{attempt_note} for {placement.name}",
 					"stage_logged_at": step.step_type,
 					"clearance_step": step.name,

@@ -347,7 +347,7 @@ def _record_ticket_expense(placement, amount, fee_type, description):
 	finance_engine.accrue_commission's Commission transaction)."""
 	from decimal import Decimal
 
-	from frappe.utils import today
+	from agency_tracking.finance_engine import birr_fields
 
 	with sanctioned_write():  # system-created Approved ledger row (QA A1)
 		return frappe.get_doc(
@@ -358,8 +358,7 @@ def _record_ticket_expense(placement, amount, fee_type, description):
 				"transaction_type": "Expense",
 				"amount_original": Decimal(str(amount)),
 				"currency_original": "ETB",
-				"fx_rate": Decimal("1"),
-				"fx_rate_date": today(),
+				**birr_fields(amount, "ETB"),
 				"description": description,
 				"stage_logged_at": "Ticketing",
 				"fee_type": fee_type,

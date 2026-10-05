@@ -6,6 +6,7 @@ from decimal import Decimal
 import frappe
 from frappe.model.document import Document
 from frappe.utils import flt
+from agency_tracking.finance_engine import birr_conversion_on
 from agency_tracking.state_machine import guard_locked_fields, guard_status_write
 
 
@@ -13,22 +14,26 @@ class ApplicantTransaction(Document):
 	def validate(self):
 		guard_status_write(self, ("Pending",))  # QA A1: status only via the app's actions
 		guard_locked_fields(self, ("Approved", "Voided"), ("transaction_type", "amount_original", "currency_original", "fx_rate", "fx_rate_date", "amount_birr"))  # QA P5-07
-		# fx_rate/fx_rate_date are required unless the row is awaiting an FX rate (2026-09-23).
-		# Enforced here because mandatory_depends_on is only applied in the Desk form, not on the
-		# server -- the fields used to be plain reqd.
-		if not self.awaiting_fx_rate and (self.fx_rate is None or not self.fx_rate_date):
-			frappe.throw(
-				"FX Rate and FX Rate Date are required (unless the transaction is awaiting an FX rate).",
-				frappe.MandatoryError,
-			)
+		# Without Birr conversion (the switch in FX Rate Settings, D-30) a row carries its own
+		# currency only: no rate is required and the Birr figure is left exactly as stored, so a
+		# row priced before the switch was turned off keeps its old, unused figure.
+		if birr_conversion_on():
+			# fx_rate/fx_rate_date are required unless the row is awaiting an FX rate (2026-09-23).
+			# Enforced here because mandatory_depends_on is only applied in the Desk form, not on
+			# the server -- the fields used to be plain reqd.
+			if not self.awaiting_fx_rate and (self.fx_rate is None or not self.fx_rate_date):
+				frappe.throw(
+					"FX Rate and FX Rate Date are required (unless the transaction is awaiting an FX rate).",
+					frappe.MandatoryError,
+				)
 
-		# Defense in depth: amount_birr must always be the product of the two figures that
-		# produced it, regardless of which code path created this row. Exact Decimal product rounded
-		# once, half-even -- the same rule the writers use; a float product re-priced lines on every
-		# save (2.675 x 1 -> 2.67 at approval after being written as 2.68, QA P5-01).
-		self.amount_birr = round(
-			Decimal(str(flt(self.amount_original))) * Decimal(str(flt(self.fx_rate))), 2
-		)
+			# Defense in depth: amount_birr must always be the product of the two figures that
+			# produced it, regardless of which code path created this row. Exact Decimal product
+			# rounded once, half-even -- the same rule the writers use; a float product re-priced
+			# lines on every save (2.675 x 1 -> 2.67 at approval after being written as 2.68, QA P5-01).
+			self.amount_birr = round(
+				Decimal(str(flt(self.amount_original))) * Decimal(str(flt(self.fx_rate))), 2
+			)
 
 		if self.placement and not self.cycle_number:
 			self.cycle_number = frappe.db.get_value("Placement", self.placement, "cycle_number")

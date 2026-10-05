@@ -5,11 +5,19 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "convert_to_birr",
   "mode",
   "fetch_interval",
   "last_fetched_at"
  ],
  "fields": [
+  {
+   "default": "0",
+   "description": "Off: every amount stays in the currency it was entered in. No exchange rate is looked up, required or fetched, nothing waits for a rate, and reports show one total per currency. On: every amount is also converted to Birr at the rate of its date.",
+   "fieldname": "convert_to_birr",
+   "fieldtype": "Check",
+   "label": "Convert amounts to Birr"
+  },
   {
    "default": "Custom",
    "description": "Global: rates auto-fetched from a free rate API on the interval below. Custom: Finance Manager/Admin set rates manually via set_fx_rate.",
@@ -36,7 +44,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-08-29 00:00:00.000000",
+ "modified": "2026-10-05 14:00:00.000000",
  "modified_by": "Administrator",
  "module": "Agency Tracking",
  "name": "FX Rate Settings",
