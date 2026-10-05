@@ -3253,13 +3253,65 @@
         ]
       }
     },
+    "/api/method/agency_tracking.finance_api.get_money_settings": {
+      "post": {
+        "tags": [
+          "Finance"
+        ],
+        "summary": "Whether this deployment converts amounts to Birr",
+        "description": "Returns {birr_conversion: bool}. Off: show each amount in its own currency, one total per currency, and no exchange-rate controls.",
+        "x-roles": [
+          "Any internal staff"
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded",
+          "application/json"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "object",
+                  "properties": {
+                    "currency": {
+                      "type": "string"
+                    },
+                    "rate_to_birr": {
+                      "type": "number"
+                    },
+                    "rate_date": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted (role/permission check failed)"
+          },
+          "417": {
+            "description": "Validation error (business rule violated)"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/api/method/agency_tracking.finance_api.get_fx_rate": {
       "post": {
         "tags": [
           "Finance"
         ],
         "summary": "Get the cached FX rate for a currency",
-        "description": "ETB is hardcoded to 1.0 (Birr itself, no conversion needed). Other currencies fall back to the most recent cached rate on or before as_of_date; throws if none was ever recorded.",
+        "description": "ETB is hardcoded to 1.0 (Birr itself, no conversion needed). Other currencies fall back to the most recent cached rate on or before as_of_date; throws if none was ever recorded. With Birr conversion off this answers 417 \"Exchange rates are switched off on this system.\"",
         "x-roles": [
           "Finance Manager",
           "Admin"
@@ -3637,7 +3689,7 @@
           "Finance"
         ],
         "summary": "Manually record an FX rate",
-        "description": "Custom-mode path (FX Rate Settings). ETB cannot be set -- it's always 1:1, hardcoded. Recording a rate also converts every awaiting_fx_rate transaction in that currency (the transaction's own-date rate if one exists on/before it, else the earliest rate after it). Already-converted transactions are never recomputed.",
+        "description": "Custom-mode path (FX Rate Settings). ETB cannot be set -- it's always 1:1, hardcoded. Recording a rate also converts every awaiting_fx_rate transaction in that currency (the transaction's own-date rate if one exists on/before it, else the earliest rate after it). Already-converted transactions are never recomputed. With Birr conversion off this answers 417 \"Exchange rates are switched off on this system.\"",
         "x-roles": [
           "Finance Manager",
           "Admin"
@@ -5735,7 +5787,7 @@
           "Reconciliation"
         ],
         "summary": "Upload a bank statement CSV",
-        "description": "Parses rows and runs the automatic line-to-batch matcher (matches by total amount).",
+        "description": "Parses rows and runs the automatic line-to-batch matcher (matches by total amount). currency: the currency of the statement's account; required while Birr conversion is off, where a line is matched to an invoice by its own-currency total.",
         "x-roles": [
           "Finance Manager",
           "Admin"
@@ -5750,6 +5802,20 @@
             "in": "formData",
             "type": "string",
             "required": true
+          },
+          {
+            "name": "currency",
+            "in": "formData",
+            "type": "string",
+            "required": false,
+            "enum": [
+              "ETB",
+              "SAR",
+              "KWD",
+              "USD",
+              "AED",
+              "QAR"
+            ]
           }
         ],
         "responses": {
@@ -6046,7 +6112,7 @@
           "Finance"
         ],
         "summary": "Approved transaction totals grouped by destination country",
-        "description": "Approved Expense totals by destination country (by_country_birr): what each corridor costs. Commissions and other income are not counted (D-17).",
+        "description": "Approved Expense totals by destination country (by_country_birr): what each corridor costs. Commissions and other income are not counted (D-17). Always returns by_country = {country: {currency: total}} and birr_conversion. by_country_birr and awaiting_fx only while birr_conversion is true.",
         "x-roles": [
           "Admin",
           "Manager",
@@ -6209,7 +6275,7 @@
           "Finance"
         ],
         "summary": "Per-employee net expense + approval/rejection rate",
-        "description": "",
+        "description": "Each row has net_expense_by_currency = {currency: total}; net_expense_birr only while Birr conversion is on.",
         "x-roles": [
           "Admin",
           "Manager",
@@ -6284,7 +6350,7 @@
           "Reports"
         ],
         "summary": "Income/expense/commission totals + outstanding/settled",
-        "description": "Deliberately Admin-only, not Manager, unlike every other report here -- the financial-visibility wall from Step 8 applies to reporting too, not just the raw ledger. outstanding_owed_birr = money agencies still owe: Approved commissions not yet invoiced plus the unpaid balance (balance_due_birr) of every invoice that isn't Settled (D-02).",
+        "description": "Deliberately Admin-only, not Manager, unlike every other report here -- the financial-visibility wall from Step 8 applies to reporting too, not just the raw ledger. outstanding_owed_birr = money agencies still owe: Approved commissions not yet invoiced plus the unpaid balance (balance_due_birr) of every invoice that isn't Settled (D-02). Always returns by_currency = {currency: {commission, income, expense, net, outstanding_owed, settled_in_period}} and birr_conversion. totals_birr, outstanding_owed_birr, settled_in_period_birr and awaiting_fx are present only while birr_conversion is true.",
         "x-roles": [
           "Admin",
           "Manager",
@@ -6497,7 +6563,7 @@
           "Finance"
         ],
         "summary": "List every Pending Applicant Transaction, oldest-first",
-        "description": "So nothing sits forgotten waiting on Finance review.",
+        "description": "So nothing sits forgotten waiting on Finance review. Each row has amount_original and currency_original; amount_birr only while Birr conversion is on.",
         "x-roles": [
           "Admin",
           "Manager",
@@ -7182,7 +7248,7 @@
           "Finance"
         ],
         "summary": "Pull live FX rates now (manual trigger)",
-        "description": "Manually pulls live FX rates from the public source right now instead of waiting for the scheduled Global-mode fetch. Custom-mode sites never need this. Returns the currencies actually recorded (empty if the source was unreachable; existing cache stands).",
+        "description": "Manually pulls live FX rates from the public source right now instead of waiting for the scheduled Global-mode fetch. Custom-mode sites never need this. Returns the currencies actually recorded (empty if the source was unreachable; existing cache stands). With Birr conversion off this answers 417 \"Exchange rates are switched off on this system.\"",
         "x-roles": [
           "Finance Manager",
           "Admin",

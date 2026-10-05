@@ -22,6 +22,7 @@
   "fx_rate_date",
   "amount_birr",
   "awaiting_fx_rate",
+  "fx_rate_old",
   "description",
   "clearance_step",
   "fee_type",
@@ -36,7 +37,7 @@
  ],
  "fields": [
   {
-   "description": "Optional — set for registration-fee entries logged before any Placement exists (Applicant.log_fee_transaction). Most transactions are traceable via placement instead.",
+   "description": "Optional \u2014 set for registration-fee entries logged before any Placement exists (Applicant.log_fee_transaction). Most transactions are traceable via placement instead.",
    "fieldname": "applicant",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -46,7 +47,7 @@
    "read_only": 1
   },
   {
-   "description": "Part B: optional — not every transaction is placement-scoped (e.g. general agency overhead logged directly by staff).",
+   "description": "Part B: optional \u2014 not every transaction is placement-scoped (e.g. general agency overhead logged directly by staff).",
    "fieldname": "placement",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -158,6 +159,14 @@
    "description": "Recorded in its own currency while no FX rate for that currency existed yet -- amount_birr is 0 until a rate is recorded, then it's converted automatically (finance_engine.convert_awaiting_fx)."
   },
   {
+   "default": "0",
+   "description": "Set when the newest exchange rate available for this row was more than 7 days old. The rate was still used; Finance is asked to record a current one.",
+   "fieldname": "fx_rate_old",
+   "fieldtype": "Check",
+   "label": "Old Exchange Rate",
+   "read_only": 1
+  },
+  {
    "fieldname": "description",
    "fieldtype": "Small Text",
    "label": "Description/Remark"
@@ -231,7 +240,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-05 13:00:00.000000",
+ "modified": "2026-10-05 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "Agency Tracking",
  "name": "Applicant Transaction",

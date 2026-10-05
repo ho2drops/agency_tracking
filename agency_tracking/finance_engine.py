@@ -7,7 +7,7 @@
 # that import ordering matters (same reasoning as clearance_engine's Step 7 registration).
 
 import frappe
-from frappe.utils import cint, today
+from frappe.utils import cint, getdate, today
 from decimal import Decimal, InvalidOperation
 
 from agency_tracking.db_errors import reraise_if_db_abort
@@ -41,17 +41,54 @@ def birr_fields(amount, currency, as_of_date=None, wait_for_rate=False):
 	Conversion on: the rate of `as_of_date`; with no rate at all the row waits for one
 	(wait_for_rate, system-recorded amounts) or the call fails (staff entries, as before)."""
 	if not birr_conversion_on():
-		return {"fx_rate": 0, "fx_rate_date": None, "amount_birr": 0, "awaiting_fx_rate": 0}
+		return {"fx_rate": 0, "fx_rate_date": None, "amount_birr": 0, "awaiting_fx_rate": 0, "fx_rate_old": 0}
 	rate, rate_date = (get_fx_rate_or_none if wait_for_rate else get_fx_rate)(currency, as_of_date)
 	if rate is None:
-		return {"fx_rate": 0, "fx_rate_date": None, "amount_birr": 0, "awaiting_fx_rate": 1}
+		return {"fx_rate": 0, "fx_rate_date": None, "amount_birr": 0, "awaiting_fx_rate": 1, "fx_rate_old": 0}
 	rate = Decimal(str(rate))
 	return {
 		"fx_rate": rate,
 		"fx_rate_date": rate_date,
 		"amount_birr": round(Decimal(str(amount)) * rate, 2),
 		"awaiting_fx_rate": 0,
+		"fx_rate_old": 1 if _report_old_rate(currency, rate_date, as_of_date) else 0,
 	}
+
+
+# D-04 (user 2026-10-05): a rate older than this is still used, but the row is marked and Finance
+# is asked, once per currency, to record a current one.
+OLD_RATE_DAYS = 7
+
+
+def _report_old_rate(currency, rate_date, as_of_date=None):
+	"""True when the rate used for `currency` is more than OLD_RATE_DAYS older than the date it
+	prices. Leaves every Finance Manager one open task per currency (not one per row)."""
+	age = (getdate(as_of_date or today()) - getdate(rate_date)).days
+	if currency == "ETB" or age <= OLD_RATE_DAYS:
+		return False
+	subject = f"The newest {currency} exchange rate"
+	for user in frappe.get_all("Has Role", filters={"role": "Finance Manager", "parenttype": "User"}, pluck="parent"):
+		if not frappe.db.get_value("User", user, "enabled"):
+			continue
+		open_task = {
+			"allocated_to": user,
+			"status": "Open",
+			"reference_type": "FX Rate Settings",
+			"description": ["like", f"{subject}%"],
+		}
+		if frappe.db.exists("ToDo", open_task):
+			continue
+		frappe.get_doc(
+			{
+				"doctype": "ToDo",
+				"allocated_to": user,
+				"reference_type": "FX Rate Settings",
+				"reference_name": "FX Rate Settings",
+				"description": f"{subject} is from {rate_date} ({age} days old). It was still used. Record a current rate.",
+				"status": "Open",
+			}
+		).insert(ignore_permissions=True)
+	return True
 
 
 def get_fx_rate(currency, as_of_date=None):

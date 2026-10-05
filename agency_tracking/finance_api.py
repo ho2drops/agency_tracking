@@ -11,6 +11,7 @@ from agency_tracking.finance_engine import (
 	apply_batch_write_off,
 	create_batch_request,
 	fetch_daily_fx_rates,
+	birr_conversion_on,
 	birr_fields,
 	require_birr_conversion,
 	get_fx_rate as _get_fx_rate,
@@ -284,6 +285,15 @@ def trigger_early_commission_accrual(placement_name=None, **kwargs):
 	if txn is None:
 		frappe.throw(f"{placement_name} already has an active commission transaction.", frappe.ValidationError)
 	return txn.as_dict()
+
+
+@frappe.whitelist()
+def get_money_settings():
+	"""What every money screen needs to know before it draws: whether this deployment converts
+	amounts to Birr. Off: screens show each amount in its own currency, one total per currency,
+	and no exchange-rate controls. Any internal staff member may read it."""
+	require_internal_staff()
+	return {"birr_conversion": birr_conversion_on()}
 
 
 @frappe.whitelist()
