@@ -220,7 +220,7 @@ def get_financial_overview(from_date=None, to_date=None, **kwargs):
 
 	base_filters = {"status": "Approved", "creation": ["between", _day_range(from_date, to_date)]}
 	totals = {}
-	for transaction_type in ("Commission", "Refund", "Income", "Expense"):
+	for transaction_type in ("Commission", "Income", "Expense"):
 		rows = frappe.get_all(
 			"Applicant Transaction",
 			filters={**base_filters, "transaction_type": transaction_type},

@@ -6277,7 +6277,7 @@
         "tags": [
           "Reports"
         ],
-        "summary": "Income/expense/commission/refund totals + outstanding/settled",
+        "summary": "Income/expense/commission totals + outstanding/settled",
         "description": "Deliberately Admin-only, not Manager, unlike every other report here -- the financial-visibility wall from Step 8 applies to reporting too, not just the raw ledger. outstanding_owed_birr = money agencies still owe: Approved commissions not yet invoiced plus the unpaid balance (balance_due_birr) of every invoice that isn't Settled (D-02).",
         "x-roles": [
           "Admin"
@@ -6319,9 +6319,6 @@
                       "type": "object",
                       "properties": {
                         "commission": {
-                          "type": "number"
-                        },
-                        "refund": {
                           "type": "number"
                         },
                         "income": {
@@ -8758,7 +8755,6 @@
             "required": false,
             "enum": [
               "Commission",
-              "Refund",
               "Income",
               "Expense"
             ]
