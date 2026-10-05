@@ -28,6 +28,8 @@
 import frappe
 from frappe.utils import getdate, today
 
+from agency_tracking.labels import candidate_label, format_candidate
+
 MEDICAL_EXPIRY_TIER_DAYS = [14, 10, 7, 3, 1]
 PASSPORT_EXPIRY_WINDOW_DAYS = 30
 CONTRACT_AGE_APPROACHING_DAYS = 25
@@ -53,17 +55,18 @@ def medical_expiry_alerts():
 	applicants = frappe.get_list(
 		"Applicant",
 		filters={"medical_expiry_date": ["is", "set"], "active_placement": ["is", "set"]},
-		fields=["name", "full_name", "medical_expiry_date", "active_placement"],
+		fields=["name", "full_name", "passport_number", "medical_expiry_date", "active_placement"],
 	)
 	alerts = []
 	for app in applicants:
+		who = format_candidate(app.full_name, app.passport_number)
 		diff_days = (getdate(app.medical_expiry_date) - getdate(today())).days
 		if diff_days < 0:
 			alerts.append(
 				{
 					"key": f"med-expired:{app.name}",
-					"title": f"Medical Expired: {app.full_name}",
-					"body": f"Medical clearance for {app.full_name} expired on {app.medical_expiry_date}. "
+					"title": f"Medical Expired: {who}",
+					"body": f"Medical clearance for {who} expired on {app.medical_expiry_date}. "
 					f"Processing is halted until renewed.",
 					"category": "compliance",
 					"severity": "urgent",
@@ -81,8 +84,8 @@ def medical_expiry_alerts():
 		alerts.append(
 			{
 				"key": f"med-expiry:{app.name}:{tier}",
-				"title": f"Medical Expiry Watchdog: {app.full_name} ({diff_days}d remaining)",
-				"body": f"Medical clearance for {app.full_name} expires on {app.medical_expiry_date} "
+				"title": f"Medical Expiry Watchdog: {who} ({diff_days}d remaining)",
+				"body": f"Medical clearance for {who} expires on {app.medical_expiry_date} "
 				f"({diff_days} days remaining). LMIS re-examination or clearance renewal required.",
 				"category": "compliance",
 				"severity": "urgent" if diff_days <= 3 else "warning",
@@ -98,17 +101,18 @@ def passport_expiry_alerts():
 	applicants = frappe.get_list(
 		"Applicant",
 		filters={"passport_expiry_date": ["is", "set"]},
-		fields=["name", "full_name", "passport_expiry_date"],
+		fields=["name", "full_name", "passport_number", "passport_expiry_date"],
 	)
 	alerts = []
 	for app in applicants:
+		who = format_candidate(app.full_name, app.passport_number)
 		diff_days = (getdate(app.passport_expiry_date) - getdate(today())).days
 		if diff_days < 0:
 			alerts.append(
 				{
 					"key": f"passport-expired:{app.name}",
-					"title": f"Expired Passport: {app.full_name}",
-					"body": f"Passport for {app.full_name} expired on {app.passport_expiry_date}. "
+					"title": f"Expired Passport: {who}",
+					"body": f"Passport for {who} expired on {app.passport_expiry_date}. "
 					f"Processing is halted until renewed.",
 					"category": "compliance",
 					"severity": "urgent",
@@ -121,8 +125,8 @@ def passport_expiry_alerts():
 			alerts.append(
 				{
 					"key": f"passport-expiry:{app.name}:{diff_days}",
-					"title": f"Passport Expiring Soon: {app.full_name} ({diff_days}d)",
-					"body": f"{app.full_name}'s passport expires on {app.passport_expiry_date}. "
+					"title": f"Passport Expiring Soon: {who} ({diff_days}d)",
+					"body": f"{who}'s passport expires on {app.passport_expiry_date}. "
 					f"Immediate renewal required before embassy visa stamping.",
 					"category": "compliance",
 					"severity": "urgent",
@@ -143,13 +147,13 @@ def contract_age_alerts():
 	alerts = []
 	for plc in placements:
 		age_days = (getdate(today()) - getdate(plc.contract_signed_date)).days
-		applicant_name = frappe.db.get_value("Applicant", plc.applicant, "full_name") or plc.applicant
+		who = candidate_label(applicant=plc.applicant)
 		if age_days >= CONTRACT_AGE_CRITICAL_DAYS:
 			alerts.append(
 				{
 					"key": f"contract-age:{plc.name}:critical",
-					"title": f"Critical Contract Age: Placement {plc.name} ({age_days}d)",
-					"body": f"Placement for {applicant_name} has reached {age_days} days since contract "
+					"title": f"Critical Contract Age: {who} ({age_days}d)",
+					"body": f"Placement for {who} has reached {age_days} days since contract "
 					f"signing and is still not Departed (cutoff: {CONTRACT_AGE_CRITICAL_DAYS}d). "
 					f"Priority clearance and ticketing required.",
 					"category": "compliance",
@@ -163,8 +167,8 @@ def contract_age_alerts():
 			alerts.append(
 				{
 					"key": f"contract-age:{plc.name}:approaching",
-					"title": f"Approaching Ticket Deadline: Placement {plc.name} ({age_days}d)",
-					"body": f"Placement for {applicant_name} is at {age_days} days since signing "
+					"title": f"Approaching Ticket Deadline: {who} ({age_days}d)",
+					"body": f"Placement for {who} is at {age_days} days since signing "
 					f"(critical cutoff approaching at {CONTRACT_AGE_CRITICAL_DAYS} days). Ensure "
 					f"ticketing clearance is expedited.",
 					"category": "workflow",
@@ -178,7 +182,7 @@ def contract_age_alerts():
 			alerts.append(
 				{
 					"key": f"plc-med2:{plc.name}",
-					"title": f"Pre-Departure Medical 2 Due: Placement {plc.name}",
+					"title": f"Pre-Departure Medical 2 Due: {who}",
 					"body": "Candidate is Ticketed for flight departure. Pre-departure medical fitness "
 					"verification required before airport departure clearance.",
 					"category": "workflow",
@@ -202,11 +206,12 @@ def wakala_alerts():
 	alerts = []
 	for step in steps:
 		applicant = frappe.db.get_value("Placement", step.placement, "applicant")
+		who = candidate_label(applicant=applicant)
 		alerts.append(
 			{
 				"key": f"wakala:{step.name}",
-				"title": f"Wakala Reminder: {step.name}",
-				"body": f"Wakala authorization and fee payment pending for Placement {step.placement}. "
+				"title": f"Wakala Reminder: {who}",
+				"body": f"Wakala authorization and fee payment pending for {who}. "
 				f"Must be completed prior to the Monday Embassy cutoff.",
 				"category": "compliance",
 				"severity": "urgent",
@@ -243,11 +248,12 @@ def taeshir_injaz_alerts():
 			tier = _tier_for(diff_days, TAESHIR_INJAZ_TIER_DAYS)
 			if applicant is None:
 				applicant = frappe.db.get_value("Placement", step.placement, "applicant")
+			who = candidate_label(applicant=applicant)
 			alerts.append(
 				{
 					"key": f"taeshir-injaz:{step.name}:{tier}",
-					"title": f"Taeshir / Injaz Reminder: {step.name} ({diff_days}d)",
-					"body": f"Injaz payment for Clearance Step {step.name} (Placement {step.placement}) "
+					"title": f"Taeshir / Injaz Reminder: {who} ({diff_days}d)",
+					"body": f"Injaz payment for {who} "
 					f"is still unpaid with the Taeshir appointment {diff_days} day(s) out. Arriving "
 					f"unpaid forfeits the appointment fee.",
 					"category": "workflow",
@@ -273,17 +279,12 @@ def complaint_alerts():
 
 	alerts = []
 	for comp in complaints:
-		applicant_name = None
-		if comp.get("placement"):
-			applicant = frappe.db.get_value("Placement", comp["placement"], "applicant")
-			if applicant:
-				applicant_name = frappe.db.get_value("Applicant", applicant, "full_name") or applicant
-		label = applicant_name or "Candidate"
+		label = candidate_label(placement=comp.get("placement"))
 		alerts.append(
 			{
 				"key": f"complaint:{comp['name']}",
 				"title": f"Active Complaint: {label}",
-				"body": f'Dispute ticket for {label} (Placement {comp.get("placement") or "N/A"}): '
+				"body": f'Dispute ticket for {label}: '
 				f'"{comp.get("description") or "Active complaint"}"',
 				"category": "complaints",
 				"severity": "urgent",

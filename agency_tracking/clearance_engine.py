@@ -11,6 +11,7 @@ import frappe
 
 from agency_tracking.corridor_engine import get_corridor_steps
 from agency_tracking.db_errors import reraise_if_db_abort
+from agency_tracking.labels import candidate_label, step_label
 from agency_tracking.notification_engine import notify
 from agency_tracking.state_machine import REQUIRED_SIDE_EFFECTS, TRANSITION_SIDE_EFFECTS
 
@@ -21,18 +22,14 @@ LMIS_STEP_TYPE_PREFIX = "LMIS"
 
 
 def _step_label(clearance_step_name):
-	"""Clearance Step.title is already '{Step Type} — {Applicant} [{step ID}]' (see
-	clearance_step.py's _set_title) -- reused here so ToDo descriptions read the same way
-	instead of a bare 'Clearance Step CLR-2026-00045' a reader has to click into to identify."""
-	return frappe.db.get_value("Clearance Step", clearance_step_name, "title") or clearance_step_name
+	"""'Embassy step for Full Name (passport)' -- how a task names its step, so the reader knows
+	whose it is without opening it."""
+	return step_label(clearance_step_name)
 
 
 def _placement_label(placement_name):
-	"""'{Applicant} [{placement ID}]', mirroring _step_label -- Placement has no cached title
-	field of its own, so this looks the applicant name up directly."""
-	applicant = frappe.db.get_value("Placement", placement_name, "applicant")
-	full_name = frappe.db.get_value("Applicant", applicant, "full_name") if applicant else None
-	return f"{full_name} [{placement_name}]" if full_name else placement_name
+	"""'Full Name (passport)' -- how a task names the candidate of a placement."""
+	return candidate_label(placement=placement_name)
 
 
 def assign_clearance_step(clearance_step_name, user):

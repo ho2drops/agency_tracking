@@ -20,12 +20,14 @@
 import frappe
 from frappe.utils import add_to_date, now_datetime
 
+from agency_tracking.labels import candidate_label, step_label, user_label, without_record_ids
+
 # How long a push service should hold an undelivered notification for an offline recipient
 # before giving up, per RFC 8030. pywebpush defaults to 0 ("now or never") if not overridden.
 PUSH_TTL_SECONDS = 24 * 60 * 60
-
-
 NOTIFICATIONS_PAGE = "/notifications"
+
+
 def notify(user, template, context, channel="Push", immediate=False):
 	"""Records the notification now and hands the sending to the background worker, so whoever
 	triggered it (an assignment to a whole role, a ban event to every Manager) does not wait ~1.5 s
@@ -144,78 +146,74 @@ def _render_notification(template, context):
 	variable through watchdogs.py's _daily_notifier(template) rather than as a literal at the
 	notify() call site (medical_expiry_warning, contract_age_alert,
 	taeshir_injaz_payment_reminder, departure_due_reminder). An unrecognized template still
-	renders something reasonable rather than failing delivery."""
+	renders something reasonable rather than failing delivery.
+
+	People are named, records are not: a candidate is "Full Name (passport)" (labels.py), looked up
+	here from the IDs the context carries, so what is stored does not change."""
 	context = context or {}
+	who = candidate_label(context.get("applicant"), context.get("placement"), context.get("clearance_step"))
 	if template == "medical_expiry_warning":
-		return (
-			"Medical Expiry Warning",
-			f"{context.get('full_name')}'s medical clearance expires in {context.get('days_remaining')} "
-			f"day(s) (Placement {context.get('placement')}).",
-		)
+		return "Medical Expiry Warning", f"{who}: medical clearance expires in {context.get('days_remaining')} day(s)."
 	if template == "contract_age_alert":
 		return (
 			"Contract Age Alert",
-			f"Placement {context.get('placement')} has been open {context.get('age_days')} days "
-			f"(threshold {context.get('threshold_days')} days).",
+			f"{who}: contract signed {context.get('age_days')} days ago, not yet departed "
+			f"(limit {context.get('threshold_days')} days).",
 		)
 	if template == "taeshir_injaz_payment_reminder":
 		return (
 			"Taeshir/Injaz Payment Reminder",
-			f"Injaz payment due for Clearance Step {context.get('clearance_step')} "
-			f"(Placement {context.get('placement')}) -- appointment in {context.get('days_remaining')} day(s).",
+			f"{who}: Injaz payment due, appointment in {context.get('days_remaining')} day(s).",
 		)
 	if template == "departure_due_reminder":
 		return (
 			"Departure Confirmation Overdue",
-			f"Placement {context.get('placement')}'s flight date ({context.get('flight_date')}) has passed "
-			f"({context.get('days_overdue')} day(s) overdue) -- confirm departure.",
+			f"{who}: flight date {context.get('flight_date')} has passed "
+			f"({context.get('days_overdue')} day(s) overdue). Confirm departure.",
 		)
 	if template == "clearance_step_assigned":
-		return "New Clearance Step Assigned", f"You've been assigned to Clearance Step {context.get('clearance_step')}."
+		return "New Clearance Step Assigned", f"You've been assigned the {step_label(context.get('clearance_step'))}."
 	if template == "placement_todo_assigned":
-		return "New Task Assigned", context.get("description") or f"New task on Placement {context.get('placement')}."
+		description = without_record_ids(context.get("description"), context.get("placement"))
+		return "New Task Assigned", description or f"New task for {who}."
 	if template == "wakala_payment_reminder":
-		return (
-			"Wakala Payment Reminder",
-			context.get("message")
-			or f"Wakala payment due for Clearance Step {context.get('clearance_step')} (Placement {context.get('placement')}).",
-		)
+		return "Wakala Payment Reminder", context.get("message") or f"Wakala payment due for {who}."
 	if template == "chat_message":
-		return "New Message", f"New message from {context.get('sender')}."
+		return "New Message", f"New message from {user_label(context.get('sender'))}."
 	if template == "background_job_completed":
 		job_type = context.get("job_type") or "Background job"
-		status = context.get("status") or "finished"
-		return (
-			f"{job_type} {status}",
-			f"Your {job_type} job for {context.get('reference_doctype')} {context.get('reference_name')} is {status}.",
-		)
+		status = context.get("status") or "Finished"
+		about = ""
+		if context.get("reference_doctype") == "Applicant" and context.get("reference_name"):
+			about = f" for {candidate_label(applicant=context.get('reference_name'))}"
+		return f"{job_type} {status}", f"Your {job_type} job{about} is {status.lower()}."
 	if template == "country_ban_request":
-		what = f"a one-time override ({context.get('action')})" if context.get("request_type") == "Override" else "lifting the ban"
+		action = str(context.get("action") or "").replace("_", " ")
+		what = f"a one-time override ({action})" if context.get("request_type") == "Override" else "lifting the ban"
 		return (
 			"Country Ban Request",
-			f"{context.get('requested_by')} requests {what} for {context.get('applicant')} on "
-			f"{context.get('country')} ({context.get('request')}): {context.get('reason')}",
+			f"{user_label(context.get('requested_by'))} requests {what} for {who} on "
+			f"{context.get('country')}: {context.get('reason')}",
 		)
 	if template == "country_ban_request_decided":
 		outcome = context.get("status")
-		extra = " -- retry the action now; it will go through once." if outcome == "Approved" and context.get("request_type") == "Override" else ""
+		extra = " Retry the action now; it will go through once." if outcome == "Approved" and context.get("request_type") == "Override" else ""
 		return (
 			f"Country Ban Request {outcome}",
-			f"Your {str(context.get('request_type')).lower()} request {context.get('request')} for "
-			f"{context.get('applicant')} on {context.get('country')} was {str(outcome).lower()}{extra}"
-			+ (f" Note: {context.get('note')}" if context.get("note") else ""),
+			f"Your {str(context.get('request_type')).lower()} request for {who} on {context.get('country')} "
+			f"was {str(outcome).lower()}.{extra}" + (f" Note: {context.get('note')}" if context.get("note") else ""),
 		)
 	if template and template.startswith("country_ban_"):
 		event = template[len("country_ban_") :].replace("_", " ").title()
 		return (
 			f"Country Ban {event}",
-			f"Applicant {context.get('applicant')}: {context.get('ban')} on {context.get('country')} -- {context.get('reason')}.",
+			f"{who}: ban on {context.get('country')}." + (f" Reason: {context.get('reason')}" if context.get("reason") else ""),
 		)
 	if template == "kuwait_visa_agency_mismatch":
 		return (
 			"Visa Agency Mismatch",
-			f"Placement {context.get('placement')}: parsed visa agency '{context.get('visa_agency_name')}' "
-			f"doesn't match contractor '{context.get('contractor_name')}'.",
+			f"{who}: visa agency '{context.get('visa_agency_name')}' doesn't match the agency "
+			f"'{context.get('contractor_name')}'.",
 		)
 	if template == "test_notification":
 		return "Test Notification", "This is a test push notification -- if you can see this, push delivery is working."

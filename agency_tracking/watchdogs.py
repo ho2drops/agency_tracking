@@ -10,6 +10,7 @@ import frappe
 from frappe.utils import add_days, getdate, today
 
 from agency_tracking.clearance_engine import get_lmis_officer
+from agency_tracking.labels import candidate_label
 from agency_tracking.notification_engine import notify, whatsapp_configured
 
 MEDICAL_EXPIRY_TIERS_DAYS = [14, 10, 7, 3, 1]
@@ -170,7 +171,7 @@ def send_wakala_reminder(clearance_step_name, placement_name):
 			"clearance_step": clearance_step_name,
 			"placement": placement_name,
 			"phone": phone,
-			"message": f"Wakala payment reminder for Clearance Step {clearance_step_name}.",
+			"message": f"Wakala payment reminder for {candidate_label(placement=placement_name)}.",
 		},
 		channel="WhatsApp",
 	)
