@@ -7,11 +7,12 @@
 # "twice a week" cadence.
 
 import frappe
-from frappe.utils import add_days, getdate, today
+from frappe.utils import add_days, cint, getdate, today
 
 from agency_tracking.clearance_engine import get_lmis_officer
 from agency_tracking.labels import candidate_label
 from agency_tracking.notification_engine import notify, whatsapp_configured
+from agency_tracking.notification_feed import _tier_for
 
 MEDICAL_EXPIRY_TIERS_DAYS = [14, 10, 7, 3, 1]
 
@@ -46,6 +47,41 @@ def _daily_notifier(template):
 	return send
 
 
+def _countdown_reminders(template, tiers):
+	"""Reminders that count down to a date at fixed `tiers` (days before it). Returns
+	`(send, due_tier)`: `due_tier(placement, due_date)` is `(tier, days_remaining)` when a reminder
+	is owed today, else `(None, None)`.
+
+	Owed = the nearest tier already reached (smallest tier >= the true days remaining) has not been
+	sent for this placement and date. On a run that follows every day this is exactly "today is a
+	tier day". After a missed day it sends the missed reminder late, once, with the true days
+	remaining -- never one per missed tier. A changed date (renewed medical, new appointment)
+	counts down on its own. One Comms Log query per run."""
+	send = _daily_notifier(template)
+	sent = set()
+	for row in frappe.get_all(
+		"Comms Log",
+		filters={"template": template, "creation": [">=", add_days(today(), -max(tiers))]},
+		fields=["context", "creation"],
+	):
+		ctx = frappe.parse_json(row.context) if row.context else {}
+		days = ctx.get("days_remaining")
+		if days is None:
+			continue
+		# Rows written before `tier` / `due_date` were stored were only ever sent on the tier day.
+		due_date = ctx.get("due_date") or add_days(getdate(row.creation), cint(days))
+		sent.add((ctx.get("placement"), cint(ctx.get("tier") or days), str(getdate(due_date))))
+
+	def due_tier(placement, due_date):
+		days_remaining = (getdate(due_date) - getdate(today())).days
+		tier = _tier_for(days_remaining, tiers) if days_remaining >= 1 else None
+		if tier is None or (placement, tier, str(getdate(due_date))) in sent:
+			return None, None
+		return tier, days_remaining
+
+	return send, due_tier
+
+
 def _recipient_for_placement(placement_name):
 	"""No single "owner" field exists on Placement — the natural recipient is whoever's
 	currently doing the LMIS-family step (falls back to nobody, silently, if unassigned; a
@@ -62,33 +98,40 @@ def _management_recipients():
 
 
 def medical_expiry_watchdog():
-	"""Applicant.medical_expiry_date within one of the 14/10/7/3/1-day tiers. Only meaningful for
-	applicants who've been selected (active_placement set) and NOT yet Departed -- an expiring
-	medical no longer matters once the worker has flown. Goes to the LMIS officer plus Manager +
-	Admin for management visibility (2026-09-05)."""
-	send = _daily_notifier("medical_expiry_warning")
-	for tier_days in MEDICAL_EXPIRY_TIERS_DAYS:
-		target_date = add_days(today(), tier_days)
-		applicants = frappe.get_all(
-			"Applicant",
-			filters={"medical_expiry_date": target_date, "active_placement": ["is", "set"]},
-			fields=["name", "active_placement", "full_name"],
-		)
-		for applicant in applicants:
-			if frappe.db.get_value("Placement", applicant.active_placement, "status") == "Departed":
-				continue
-			recipients = set(_management_recipients())
-			officer = _recipient_for_placement(applicant.active_placement)
-			if officer:
-				recipients.add(officer)
-			context = {
-				"applicant": applicant.name,
-				"full_name": applicant.full_name,
-				"days_remaining": tier_days,
-				"placement": applicant.active_placement,
-			}
-			for recipient in recipients:
-				send(recipient, context)
+	"""Applicant.medical_expiry_date reaching one of the 14/10/7/3/1-day tiers (a missed day is
+	made up for, see _countdown_reminders). Only meaningful for applicants who've been selected
+	(active_placement set) and NOT yet Departed -- an expiring medical no longer matters once the
+	worker has flown. Goes to the LMIS officer plus Manager + Admin for management visibility
+	(2026-09-05)."""
+	send, due_tier = _countdown_reminders("medical_expiry_warning", MEDICAL_EXPIRY_TIERS_DAYS)
+	applicants = frappe.get_all(
+		"Applicant",
+		filters={
+			"medical_expiry_date": ["between", [add_days(today(), 1), add_days(today(), max(MEDICAL_EXPIRY_TIERS_DAYS))]],
+			"active_placement": ["is", "set"],
+		},
+		fields=["name", "active_placement", "full_name", "medical_expiry_date"],
+	)
+	for applicant in applicants:
+		tier, days_remaining = due_tier(applicant.active_placement, applicant.medical_expiry_date)
+		if tier is None:
+			continue
+		if frappe.db.get_value("Placement", applicant.active_placement, "status") == "Departed":
+			continue
+		recipients = set(_management_recipients())
+		officer = _recipient_for_placement(applicant.active_placement)
+		if officer:
+			recipients.add(officer)
+		context = {
+			"applicant": applicant.name,
+			"full_name": applicant.full_name,
+			"days_remaining": days_remaining,
+			"tier": tier,
+			"due_date": str(applicant.medical_expiry_date),
+			"placement": applicant.active_placement,
+		}
+		for recipient in recipients:
+			send(recipient, context)
 
 
 def contract_age_watchdog():
@@ -186,30 +229,37 @@ def taeshir_injaz_reminder_watchdog():
 	appointment unpaid forfeits the (separate) appointment fee. Push only, deliberately no
 	WhatsApp (that channel is reserved for reaching the external foreign agency via Wakala;
 	Taeshir/Injaz reminders go to internal staff already using the system)."""
-	send = _daily_notifier("taeshir_injaz_payment_reminder")
+	send, due_tier = _countdown_reminders("taeshir_injaz_payment_reminder", TAESHIR_INJAZ_REMINDER_TIERS_DAYS)
 	taeshir_users = frappe.get_all("Has Role", filters={"role": "Saudi Taeshir"}, pluck="parent")
-	for tier_days in TAESHIR_INJAZ_REMINDER_TIERS_DAYS:
-		target_date = add_days(today(), tier_days)
-		# Appointment + Injaz payment now live on the step's Injaz Attempt rows; remind on the
-		# current (Active) attempt whose appointment is in this tier and whose Injaz is still unpaid.
-		due_attempts = frappe.get_all(
-			"Injaz Attempt",
-			filters={"outcome": "Active", "payment_status": ["!=", "Paid"], "appointment_date": target_date},
-			fields=["parent"],
+	# Appointment + Injaz payment live on the step's Injaz Attempt rows; remind on the current
+	# (Active) attempt whose appointment is inside the countdown and whose Injaz is still unpaid.
+	due_attempts = frappe.get_all(
+		"Injaz Attempt",
+		filters={
+			"outcome": "Active",
+			"payment_status": ["!=", "Paid"],
+			"appointment_date": ["between", [add_days(today(), 1), add_days(today(), max(TAESHIR_INJAZ_REMINDER_TIERS_DAYS))]],
+		},
+		fields=["parent", "appointment_date"],
+	)
+	for attempt in due_attempts:
+		step = frappe.db.get_value(
+			"Clearance Step", attempt.parent, ["name", "placement", "step_type", "status"], as_dict=True
 		)
-		for attempt in due_attempts:
-			step = frappe.db.get_value(
-				"Clearance Step", attempt.parent, ["name", "placement", "step_type", "status"], as_dict=True
-			)
-			if not step or step.step_type != "Taeshir" or step.status in ("Issued", "Complete", "Cancelled"):
-				continue
-			context = {
-				"clearance_step": step.name,
-				"placement": step.placement,
-				"days_remaining": tier_days,
-			}
-			for recipient in taeshir_users:
-				send(recipient, context)
+		if not step or step.step_type != "Taeshir" or step.status in ("Issued", "Complete", "Cancelled"):
+			continue
+		tier, days_remaining = due_tier(step.placement, attempt.appointment_date)
+		if tier is None:
+			continue
+		context = {
+			"clearance_step": step.name,
+			"placement": step.placement,
+			"days_remaining": days_remaining,
+			"tier": tier,
+			"due_date": str(attempt.appointment_date),
+		}
+		for recipient in taeshir_users:
+			send(recipient, context)
 
 
 def departure_due_watchdog():
