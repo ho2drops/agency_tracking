@@ -4388,6 +4388,59 @@
         ]
       }
     },
+    "/api/method/agency_tracking.notification_api.unsubscribe_from_push": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Stop Push notifications to the current browser",
+        "description": "Removes the calling user's own subscription for this browser endpoint. Call it on sign-out and when the user turns push off, with the endpoint from PushManager.getSubscription(). Never removes another user's subscription.",
+        "x-roles": [
+          "Any authenticated user"
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded",
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "endpoint",
+            "in": "formData",
+            "type": "string",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted (role/permission check failed)"
+          },
+          "417": {
+            "description": "Validation error (business rule violated)"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/api/method/agency_tracking.notification_api.trigger_wakala_reminder": {
       "post": {
         "tags": [

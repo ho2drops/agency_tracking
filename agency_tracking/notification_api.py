@@ -9,6 +9,7 @@ from agency_tracking.notification_engine import (
 	ensure_vapid_keys,
 	generate_vapid_keys as _generate_vapid_keys,
 	register_push_subscription as _register_push_subscription,
+	remove_push_subscription as _remove_push_subscription,
 	notify as _notify,
 )
 from agency_tracking.notification_feed import get_all_alerts
@@ -22,6 +23,16 @@ def subscribe_to_push(endpoint=None, p256dh=None, auth=None, **kwargs):
 		frappe.throw("endpoint, p256dh, and auth are all required.", frappe.ValidationError)
 	_register_push_subscription(frappe.session.user, endpoint, p256dh, auth)
 	return {"status": "subscribed"}
+
+
+@frappe.whitelist()
+def unsubscribe_from_push(endpoint=None, **kwargs):
+	"""The caller's own browser stops receiving their notifications -- called on sign-out and when
+	push is turned off. Only ever removes the calling user's row for that endpoint."""
+	if not endpoint:
+		frappe.throw("endpoint is required.", frappe.ValidationError)
+	_remove_push_subscription(frappe.session.user, endpoint)
+	return {"status": "unsubscribed"}
 
 
 @frappe.whitelist()

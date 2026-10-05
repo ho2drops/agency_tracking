@@ -260,6 +260,11 @@ def _deliver_push(log):
 			)
 		except Exception as e:
 			errors.append(str(e))
+			# 404 / 410 is the push service's final answer that this browser's subscription no
+			# longer exists (push turned off, permission withdrawn, browser data cleared). Any other
+			# failure may be temporary and keeps the row.
+			if getattr(getattr(e, "response", None), "status_code", None) in (404, 410):
+				frappe.db.delete("Push Subscription", {"user": log.recipient, "endpoint": sub.endpoint})
 	if errors and len(errors) == len(subscriptions):
 		raise Exception("; ".join(errors))
 
@@ -302,6 +307,9 @@ def register_push_subscription(user, endpoint, p256dh, auth):
 	"""Records a browser's push subscription. Whitelisted wrapper lives in
 	notification_api.py — this is the underlying logic, callable from tests without going
 	through a whitelisted-function permission context."""
+	# An endpoint is one physical browser, and it belongs to whoever enabled push on it last:
+	# without this, the previous user's notifications keep appearing on a shared computer.
+	frappe.db.delete("Push Subscription", {"endpoint": endpoint, "user": ["!=", user]})
 	existing = frappe.db.get_value("Push Subscription", {"user": user, "endpoint": endpoint}, "name")
 	if not existing:
 		frappe.get_doc(
@@ -314,6 +322,11 @@ def register_push_subscription(user, endpoint, p256dh, auth):
 			}
 		).insert(ignore_permissions=True)
 	retry_pending_notifications_later(user)
+
+
+def remove_push_subscription(user, endpoint):
+	"""Forget one browser of one user (sign-out, or push turned off in the UI)."""
+	frappe.db.delete("Push Subscription", {"user": user, "endpoint": endpoint})
 
 
 def retry_pending_notifications(user):
