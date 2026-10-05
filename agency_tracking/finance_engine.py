@@ -590,12 +590,17 @@ def apply_batch_write_off(batch_name, write_off_amount, write_off_reason):
 			frappe.ValidationError,
 		)
 
-	# The carrying rate of what's still owed (> 0: the ceiling check above leaves at least `amount`).
-	unpaid_original = Decimal(str(batch.total_amount_original or 0)) - paid_items_original - existing_write_off_original
-	unpaid_birr = Decimal(str(batch.total_amount_birr or 0)) - paid_items_birr - existing_write_off_birr
-	fx_rate = (unpaid_birr / unpaid_original).quantize(Decimal("0.000000001"))
-	fx_rate_date = today()
-	amount_birr = round(amount * fx_rate, 2)
+	if birr_conversion_on():
+		# The carrying rate of what's still owed (> 0: the ceiling check above leaves at least `amount`).
+		unpaid_original = Decimal(str(batch.total_amount_original or 0)) - paid_items_original - existing_write_off_original
+		unpaid_birr = Decimal(str(batch.total_amount_birr or 0)) - paid_items_birr - existing_write_off_birr
+		fx_rate = (unpaid_birr / unpaid_original).quantize(Decimal("0.000000001"))
+		fx_rate_date = today()
+		amount_birr = round(amount * fx_rate, 2)
+		in_birr = f" ({amount_birr} Birr)"
+	else:
+		# Without Birr conversion a write-off is the invoice-currency amount and nothing else.
+		fx_rate, fx_rate_date, amount_birr, in_birr = Decimal("0"), None, Decimal("0"), ""
 
 	with sanctioned_write():  # system-created Approved ledger row (QA A1)
 		txn = frappe.get_doc(
@@ -630,7 +635,7 @@ def apply_batch_write_off(batch_name, write_off_amount, write_off_reason):
 	log_action(
 		"Commission Batch Request",
 		batch.name,
-		f"[{batch.title or batch.name}] Write-off {amount} {batch.currency} ({amount_birr} Birr): {write_off_reason} (txn {txn.name})",
+		f"[{batch.title or batch.name}] Write-off {amount} {batch.currency}{in_birr}: {write_off_reason} (txn {txn.name})",
 	)
 	return batch
 

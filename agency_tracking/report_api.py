@@ -18,6 +18,7 @@ from decimal import Decimal
 import frappe
 from frappe.utils import flt, getdate
 
+from agency_tracking.finance_engine import birr_conversion_on
 from agency_tracking.roles import require_internal_staff
 
 # Who may open the reports, the finance ones included (D-09, user 2026-10-05).
@@ -193,8 +194,37 @@ def _dec(value):
 	return Decimal(str(flt(value)))
 
 
+# The figures get_financial_overview gives for each currency; "net" = income - expense.
+OVERVIEW_KINDS = ("commission", "income", "expense", "outstanding_owed", "settled_in_period", "net")
+
+
 def _money_sum(values):
 	return float(sum((_dec(v) for v in values), Decimal(0)))
+
+
+def _per_currency(pairs):
+	"""{currency: total} from (currency, amount) pairs -- amounts in the currency they were entered in."""
+	totals = {}
+	for currency, amount in pairs:
+		if currency:
+			totals[currency] = totals.get(currency, Decimal(0)) + _dec(amount)
+	return {currency: float(total) for currency, total in totals.items()}
+
+
+def _birr_part(**birr_keys):
+	"""The Birr side of a report: the given keys while this deployment converts to Birr, nothing
+	otherwise (a figure that is not kept must not come back as 0). Always says which it is."""
+	on = birr_conversion_on()
+	return {"birr_conversion": on, **({k: v() for k, v in birr_keys.items()} if on else {})}
+
+
+def _export_columns(items, birr_index):
+	"""An export's parallel list (headers, widths, columns, a CSV row) without its Birr entry when
+	this deployment does not convert to Birr."""
+	items = list(items)
+	if not birr_conversion_on():
+		del items[birr_index]
+	return items
 
 
 def _awaiting_fx_summary(filters):
@@ -221,40 +251,63 @@ def get_financial_overview(from_date=None, to_date=None, **kwargs):
 
 	base_filters = {"status": "Approved", "creation": ["between", _day_range(from_date, to_date)]}
 	totals = {}
+	by_currency = {}
+
+	def add(kind, per_currency):
+		for currency, amount in per_currency.items():
+			by_currency.setdefault(currency, {k: 0.0 for k in OVERVIEW_KINDS})[kind] = amount
+
 	for transaction_type in ("Commission", "Income", "Expense"):
 		rows = frappe.get_all(
 			"Applicant Transaction",
 			filters={**base_filters, "transaction_type": transaction_type},
-			fields=["amount_birr"],
+			fields=["amount_birr", "amount_original", "currency_original"],
 		)
 		totals[transaction_type.lower()] = _money_sum(r.amount_birr for r in rows)
+		add(transaction_type.lower(), _per_currency((r.currency_original, r.amount_original) for r in rows))
 
 	# Money agencies still owe (D-02, user 2026-09-30): commissions not yet invoiced, plus what is
 	# still unpaid on every invoice that isn't Settled -- invoicing a debt doesn't pay it.
 	not_invoiced = frappe.get_all(
 		"Applicant Transaction",
 		filters={"transaction_type": "Commission", "status": "Approved", "commission_batch_request": ["is", "not set"]},
-		pluck="amount_birr",
+		fields=["amount_birr", "amount_original", "currency_original"],
 	)
 	unpaid_on_invoices = frappe.get_all(
-		"Commission Batch Request", filters={"status": ["!=", "Settled"]}, pluck="balance_due_birr"
+		"Commission Batch Request",
+		filters={"status": ["!=", "Settled"]},
+		fields=["balance_due_birr", "balance_due_original", "currency"],
 	)
 	settled_batches = frappe.get_all(
 		"Commission Batch Request",
 		filters={"status": "Settled", "settled_on": ["between", [from_date, to_date]]},
-		fields=["total_amount_birr"],
+		fields=["total_amount_birr", "total_amount_original", "currency"],
 	)
+	add(
+		"outstanding_owed",
+		_per_currency(
+			[(r.currency_original, r.amount_original) for r in not_invoiced]
+			+ [(b.currency, b.balance_due_original) for b in unpaid_on_invoices]
+		),
+	)
+	add("settled_in_period", _per_currency((b.currency, b.total_amount_original) for b in settled_batches))
+	for figures in by_currency.values():
+		figures["net"] = float(_dec(figures["income"]) - _dec(figures["expense"]))
 
 	return {
 		"from_date": from_date,
 		"to_date": to_date,
-		"totals_birr": totals,
-		"outstanding_owed_birr": _money_sum(not_invoiced + unpaid_on_invoices),
-		"settled_in_period_birr": _money_sum(r.total_amount_birr for r in settled_batches),
-		"awaiting_fx": _awaiting_fx_summary(base_filters),
+		# One set of figures per currency, each in the currency it was entered in. Always present.
+		"by_currency": by_currency,
+		**_birr_part(
+			totals_birr=lambda: totals,
+			outstanding_owed_birr=lambda: _money_sum(
+				[r.amount_birr for r in not_invoiced] + [b.balance_due_birr for b in unpaid_on_invoices]
+			),
+			settled_in_period_birr=lambda: _money_sum(r.total_amount_birr for r in settled_batches),
+			awaiting_fx=lambda: _awaiting_fx_summary(base_filters),
+		),
 	}
-
-
 
 
 @frappe.whitelist()
@@ -265,7 +318,8 @@ def get_pending_approval_queue():
 	return frappe.get_all(
 		"Applicant Transaction",
 		filters={"status": "Pending"},
-		fields=["name", "placement", "transaction_type", "amount_birr", "logged_by", "creation"],
+		fields=["name", "placement", "transaction_type", "amount_original", "currency_original", "logged_by", "creation"]
+		+ (["amount_birr"] if birr_conversion_on() else []),
 		order_by="creation asc",
 	)
 
@@ -283,10 +337,11 @@ def get_cost_breakdown_report(from_date=None, to_date=None, **kwargs):
 	}
 
 	by_country = {}
+	pairs_by_country = {}
 	for row in frappe.get_all(
 		"Applicant Transaction",
 		filters=base_filters,
-		fields=["placement", "amount_birr"],
+		fields=["placement", "amount_birr", "amount_original", "currency_original"],
 	):
 		if not row.placement:
 			continue
@@ -294,12 +349,17 @@ def get_cost_breakdown_report(from_date=None, to_date=None, **kwargs):
 		if not country:
 			continue
 		by_country[country] = by_country.get(country, Decimal(0)) + _dec(row.amount_birr)
+		pairs_by_country.setdefault(country, []).append((row.currency_original, row.amount_original))
 
 	return {
 		"from_date": from_date,
 		"to_date": to_date,
-		"by_country_birr": {k: float(v) for k, v in by_country.items()},
-		"awaiting_fx": _awaiting_fx_summary(base_filters),
+		# {country: {currency: total}}, each amount in the currency it was entered in. Always present.
+		"by_country": {country: _per_currency(pairs) for country, pairs in pairs_by_country.items()},
+		**_birr_part(
+			by_country_birr=lambda: {k: float(v) for k, v in by_country.items()},
+			awaiting_fx=lambda: _awaiting_fx_summary(base_filters),
+		),
 	}
 
 
@@ -312,18 +372,19 @@ def get_employee_financial_report(from_date=None, to_date=None, **kwargs):
 	day_range = _day_range(from_date, to_date)
 
 	net = {}
+	net_pairs = {}  # user -> [(currency, signed amount)], expenses positive, income negative
 	for row in frappe.get_all(
 		"Applicant Transaction",
 		filters={"status": "Approved", "creation": ["between", day_range]},
-		fields=["logged_by", "amount_birr", "transaction_type"],
+		fields=["logged_by", "amount_birr", "amount_original", "currency_original", "transaction_type"],
 	):
 		if not row.logged_by:
 			continue
 		net.setdefault(row.logged_by, Decimal(0))
-		if row.transaction_type == "Expense":
-			net[row.logged_by] += _dec(row.amount_birr)
-		elif row.transaction_type == "Income":
-			net[row.logged_by] -= _dec(row.amount_birr)
+		sign = {"Expense": 1, "Income": -1}.get(row.transaction_type)
+		if sign:
+			net[row.logged_by] += sign * _dec(row.amount_birr)
+			net_pairs.setdefault(row.logged_by, []).append((row.currency_original, sign * _dec(row.amount_original)))
 
 	submitted_counts = {}
 	approved_counts = {}
@@ -339,6 +400,7 @@ def get_employee_financial_report(from_date=None, to_date=None, **kwargs):
 			approved_counts[row.logged_by] = approved_counts.get(row.logged_by, 0) + 1
 
 	users = set(net) | set(submitted_counts)
+	conversion_on = birr_conversion_on()
 	report = []
 	for user in users:
 		submitted = submitted_counts.get(user, 0)
@@ -346,7 +408,8 @@ def get_employee_financial_report(from_date=None, to_date=None, **kwargs):
 		report.append(
 			{
 				"user": user,
-				"net_expense_birr": float(net.get(user, 0)),
+				"net_expense_by_currency": _per_currency(net_pairs.get(user, [])),
+				**({"net_expense_birr": float(net.get(user, 0))} if conversion_on else {}),
 				"submitted_count": submitted,
 				"approval_rate": round(approved / submitted, 4) if submitted else None,
 			}
@@ -621,7 +684,9 @@ def export_commissions_xlsx(contractor=None, destination_country=None, from_date
 		# not internal record IDs -- client-facing, and a raw "PLM-00016" means nothing to them.
 		# Placement and Transaction ID kept per explicit request, but pushed to the very end as
 		# reference columns rather than leading the sheet.
-		headers = ["Applicant", "Foreign Agency", "Type", "Original Amount", "Currency", "ETB Amount", "Status", "Date", "Transaction ID", "Placement"]
+		headers = _export_columns(
+			["Applicant", "Foreign Agency", "Type", "Original Amount", "Currency", "ETB Amount", "Status", "Date", "Transaction ID", "Placement"], 5
+		)
 		_write_report_header(
 			worksheet, fmt, f"{_agency_display_name()} — Commissions Report",
 			f"Generated {frappe.utils.today()}" + (f"  |  {from_date} to {to_date}" if from_date and to_date else "") + f"  |  {len(rows)} record(s)",
@@ -630,7 +695,7 @@ def export_commissions_xlsx(contractor=None, destination_country=None, from_date
 		header_row = 3
 		for col, h in enumerate(headers):
 			worksheet.write(header_row, col, h, fmt["header"])
-		widths = [22, 24, 14, 16, 10, 16, 12, 14, 16, 16]
+		widths = _export_columns([22, 24, 14, 16, 10, 16, 12, 14, 16, 16], 5)
 		for col, w in enumerate(widths):
 			worksheet.set_column(col, col, w)
 
@@ -646,6 +711,7 @@ def export_commissions_xlsx(contractor=None, destination_country=None, from_date
 			(lambda r: r.name, "text"),
 			(lambda r: r.placement, "text"),
 		]
+		columns = _export_columns(columns, 5)
 		_write_rows(worksheet, fmt, header_row + 1, rows, columns)
 
 		last_row = header_row + len(rows)
@@ -673,9 +739,9 @@ def export_commissions_xlsx(contractor=None, destination_country=None, from_date
 	import io
 	output = io.StringIO()
 	writer = csv.writer(output)
-	writer.writerow(["Applicant", "Foreign Agency", "Type", "Original Amount", "Currency", "ETB Amount", "Status", "Date", "Transaction ID", "Placement"])
+	writer.writerow(_export_columns(["Applicant", "Foreign Agency", "Type", "Original Amount", "Currency", "ETB Amount", "Status", "Date", "Transaction ID", "Placement"], 5))
 	for r in rows:
-		writer.writerow([r.applicant_full_name or "", r.foreign_agency_name or "", r.transaction_type, r.amount_original or 0, r.currency_original or "", r.amount_birr or 0, r.status, str(r.creation)[:10], r.name, r.placement or ""])
+		writer.writerow(_export_columns([r.applicant_full_name or "", r.foreign_agency_name or "", r.transaction_type, r.amount_original or 0, r.currency_original or "", r.amount_birr or 0, r.status, str(r.creation)[:10], r.name, r.placement or ""], 5))
 
 	frappe.response["filename"] = f"commissions_report_{frappe.utils.today()}.csv"
 	frappe.response["filecontent"] = output.getvalue()
@@ -734,11 +800,11 @@ def export_transactions_xlsx(status=None, transaction_type=None, placement=None,
 	# 2026-09-12: same client-facing-name rule as export_commissions_xlsx -- applicant name +
 	# foreign agency name lead the sheet. Placement and Transaction ID kept per explicit request,
 	# pushed to the very end as reference columns.
-	headers = [
+	headers = _export_columns([
 		"Applicant", "Foreign Agency", "Type", "Status", "Original Amount",
 		"Currency", "ETB Amount", "Description", "Logged By", "Approved By", "Approved On",
 		"Rejection Reason", "Logged At", "Transaction ID", "Placement",
-	]
+	], 6)
 	subtitle_bits = [f"Generated {frappe.utils.today()}"]
 	if from_date or to_date:
 		subtitle_bits.append(f"{from_date or '...'} to {to_date or '...'}")
@@ -752,7 +818,7 @@ def export_transactions_xlsx(status=None, transaction_type=None, placement=None,
 	header_row = 3
 	for col, h in enumerate(headers):
 		worksheet.write(header_row, col, h, fmt["header"])
-	widths = [22, 24, 12, 12, 16, 10, 16, 26, 20, 20, 14, 22, 14, 16, 16]
+	widths = _export_columns([22, 24, 12, 12, 16, 10, 16, 26, 20, 20, 14, 22, 14, 16, 16], 6)
 	for col, w in enumerate(widths):
 		worksheet.set_column(col, col, w)
 
@@ -773,6 +839,7 @@ def export_transactions_xlsx(status=None, transaction_type=None, placement=None,
 		(lambda r: r.name, "text"),
 		(lambda r: r.placement, "text"),
 	]
+	columns = _export_columns(columns, 6)
 	_write_rows(worksheet, fmt, header_row + 1, rows, columns)
 
 	last_row = header_row + len(rows)
