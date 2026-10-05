@@ -179,6 +179,21 @@ has_permission = {
 # 	}
 # }
 
+# A file put into a photo / document / video slot must be of a kind that slot holds
+# (upload_guard.SLOTS). Child-table slots are checked through these parents.
+doc_events = {
+	doctype: {"validate": "agency_tracking.upload_guard.check_slots"}
+	for doctype in (
+		"Applicant",
+		"Placement",
+		"Clearance Step",
+		"Applicant Transaction",
+		"Chat Message",
+		"Bank Statement",
+		"Agency Tracking Settings",
+	)
+}
+
 # Scheduled Tasks
 # ---------------
 
@@ -215,6 +230,10 @@ before_tests = "agency_tracking.install.before_tests"
 # override_whitelisted_methods = {
 # 	"frappe.desk.doctype.event.event.get_events": "agency_tracking.event.get_events"
 # }
+
+# Every upload goes through this app's own checks first (type, real content, size, agency files
+# always private), then on to the framework's upload (QA P8-16).
+override_whitelisted_methods = {"upload_file": "agency_tracking.upload_guard.upload_file"}
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,

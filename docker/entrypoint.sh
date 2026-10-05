@@ -142,6 +142,8 @@ bench set-config -g redis_socketio "$REDIS_SERVER_URL"
 bench set-config -g webserver_port "$PORT"
 bench set-config -g default_site "$SITE_NAME"
 bench set-config -g serve_default_site true
+# Uploads: this app allows 20 MB (agency_tracking/upload_guard.py); the framework default is 10 MB.
+bench set-config -g max_file_size 20971520
 echo "$SITE_NAME" > sites/currentsite.txt
 
 # -----------------------------------------------------------------------------
