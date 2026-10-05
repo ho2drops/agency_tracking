@@ -26,6 +26,12 @@ def birr_conversion_on():
 	return bool(cint(frappe.db.get_single_value("FX Rate Settings", "convert_to_birr", cache=False)))
 
 
+def require_birr_conversion():
+	"""Refuse an exchange-rate action on a deployment that does not convert to Birr."""
+	if not birr_conversion_on():
+		frappe.throw("Exchange rates are switched off on this system.", frappe.ValidationError)
+
+
 def birr_fields(amount, currency, as_of_date=None, wait_for_rate=False):
 	"""The exchange-rate part of a new ledger row -- fx_rate, fx_rate_date, amount_birr,
 	awaiting_fx_rate -- for an amount in `currency`. Every writer of an Applicant Transaction
@@ -98,6 +104,7 @@ def positive_rate(value):
 
 
 def record_fx_rate(currency, rate_to_birr, rate_date=None):
+	require_birr_conversion()
 	if currency == "ETB":
 		frappe.throw("ETB is Birr itself -- it always converts 1:1, no FX rate to record.", frappe.ValidationError)
 	rate_to_birr = positive_rate(rate_to_birr)
@@ -135,6 +142,8 @@ def convert_awaiting_fx(currency):
 	"""Convert every awaiting_fx_rate Applicant Transaction in `currency`. Uses the rate for the
 	transaction's own date when one exists on or before it, otherwise the earliest rate after it
 	(the first rate that ever became available). Idempotent; returns the converted names."""
+	if not birr_conversion_on():
+		return []  # nothing is priced in Birr here; old rows keep what they have
 	converted = []
 	for txn in frappe.get_all(
 		"Applicant Transaction",
@@ -219,7 +228,7 @@ def maybe_fetch_fx_rates():
 	the last successful fetch (Frappe's cron granularity doesn't support arbitrary intervals
 	directly, so this polls hourly and self-throttles)."""
 	settings = frappe.get_single("FX Rate Settings")
-	if settings.mode != "Global":
+	if not settings.convert_to_birr or settings.mode != "Global":
 		return
 	interval_hours = FX_INTERVAL_HOURS.get(settings.fetch_interval or "Daily", 24)
 	if settings.last_fetched_at:

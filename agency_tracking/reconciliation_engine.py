@@ -17,7 +17,7 @@ from decimal import Decimal, InvalidOperation
 
 import frappe
 
-from agency_tracking.finance_engine import settle_batch_request
+from agency_tracking.finance_engine import birr_conversion_on, settle_batch_request
 
 AMOUNT_TOLERANCE = Decimal("0.01")
 
@@ -101,17 +101,21 @@ def match_statement_lines(statement):
 	Part A.6's "matched automatically". Anything more ambiguous than that is left Unmatched for
 	a Finance Manager to resolve via manually_match_line() rather than guessed at.
 	"""
+	# What a line's amount is compared with: the invoice's Birr total while this deployment converts
+	# to Birr; otherwise its own-currency total, and only invoices in the statement's currency.
+	if birr_conversion_on():
+		filters, total = {"status": ["!=", "Settled"]}, "total_amount_birr"
+	else:
+		filters, total = {"status": ["!=", "Settled"], "currency": statement.currency or ""}, "total_amount_original"
 	unsettled_batches = frappe.get_all(
-		"Commission Batch Request",
-		filters={"status": ["!=", "Settled"]},
-		fields=["name", "total_amount_birr", "contractor"],
+		"Commission Batch Request", filters=filters, fields=["name", f"{total} as total", "contractor"]
 	)
 
 	for line in statement.lines:
 		if line.match_status != "Unmatched":
 			continue
 
-		candidates = [b for b in unsettled_batches if abs(Decimal(str(b.total_amount_birr)) - Decimal(str(line.amount))) <= AMOUNT_TOLERANCE]
+		candidates = [b for b in unsettled_batches if abs(Decimal(str(b.total or 0)) - Decimal(str(line.amount))) <= AMOUNT_TOLERANCE]
 		if not candidates:
 			continue
 

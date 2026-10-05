@@ -5,7 +5,7 @@
 
 import frappe
 
-from agency_tracking.finance_engine import settle_batch_request
+from agency_tracking.finance_engine import birr_conversion_on, settle_batch_request
 from agency_tracking.reconciliation_engine import match_statement_lines, parse_bank_statement_csv
 
 
@@ -15,17 +15,22 @@ def _require_finance_role():
 
 
 @frappe.whitelist()
-def upload_bank_statement(file_url=None, url=None, file=None, statement_file=None, csv_content=None, **kwargs):
+def upload_bank_statement(file_url=None, url=None, file=None, statement_file=None, csv_content=None, currency=None, **kwargs):
+	"""currency: which currency the statement's account is in. Required when amounts are not
+	converted to Birr, because a line is then matched to an invoice in the invoice's own currency."""
 	_require_finance_role()
 	file_url = file_url or url or file or statement_file or kwargs.get("file_url")
 	csv_content = csv_content or kwargs.get("content")
 	if not file_url and not csv_content:
 		frappe.throw("file_url or csv_content is required.", frappe.ValidationError)
+	if not currency and not birr_conversion_on():
+		frappe.throw("Say which currency this statement is in.", frappe.ValidationError)
 	rows = parse_bank_statement_csv(file_url=file_url, csv_content=csv_content)
 	statement = frappe.get_doc(
 		{
 			"doctype": "Bank Statement",
 			"statement_file": file_url or "direct-input.csv",
+			"currency": currency,
 			"uploaded_by": frappe.session.user,
 			"status": "Uploaded",
 			"lines": rows,

@@ -12,6 +12,7 @@ from agency_tracking.finance_engine import (
 	create_batch_request,
 	fetch_daily_fx_rates,
 	birr_fields,
+	require_birr_conversion,
 	get_fx_rate as _get_fx_rate,
 	list_owed_commissions,
 	list_owed_commissions_by_currency,
@@ -291,6 +292,7 @@ def get_fx_rate(currency=None, as_of_date=None, **kwargs):
 		frappe.throw("currency is required.", frappe.ValidationError)
 	if not ({"Finance Manager", "Admin", "System Manager"} & set(frappe.get_roles())):
 		frappe.throw("Not permitted.", frappe.PermissionError)
+	require_birr_conversion()
 	rate, rate_date = _get_fx_rate(currency, as_of_date)
 	return {"currency": currency, "rate_to_birr": rate, "rate_date": rate_date}
 
@@ -315,6 +317,7 @@ def fetch_fx_rates_now():
 	currencies actually recorded (empty if the source was unreachable; the existing cache stands)."""
 	if not ({"Finance Manager", "Admin", "System Manager"} & set(frappe.get_roles())):
 		frappe.throw("Not permitted.", frappe.PermissionError)
+	require_birr_conversion()
 	recorded = fetch_daily_fx_rates()
 	return {"recorded": recorded, "count": len(recorded)}
 
