@@ -3,8 +3,9 @@
 #
 # Part I Step 13 / business-workflow-srs.md Part 8: "Management should be able to see, for any
 # date range they choose... something anyone can pull up on demand for any custom date range —
-# not a report someone has to manually assemble." Part F names get_financial_overview
-# specifically as Admin-only; the rest are Manager/Admin ("management visibility").
+# not a report someone has to manually assemble." Part F named get_financial_overview as
+# Admin-only; since D-09 (user 2026-10-05) every report here is open to Admin, Manager and
+# Finance Manager alike (MANAGEMENT_ROLES).
 #
 # Built on top of Process Event (Step 6) wherever a pipeline-stage count is really "how many
 # transitions of this kind happened in this window" — that's exactly what Process Event's
@@ -19,6 +20,7 @@ from frappe.utils import flt, getdate
 
 from agency_tracking.roles import require_internal_staff
 
+# Who may open the reports, the finance ones included (D-09, user 2026-10-05).
 MANAGEMENT_ROLES = {"Manager", "Admin", "Finance Manager", "System Manager"}
 
 
@@ -212,10 +214,9 @@ def _awaiting_fx_summary(filters):
 
 @frappe.whitelist()
 def get_financial_overview(from_date=None, to_date=None, **kwargs):
-	"""Part F: "report_api.py gains get_financial_overview (Admin-only)" — deliberately not
-	Manager, unlike every other report here (the financial visibility wall from Step 8 applies
-	to reporting too, not just the raw ledger)."""
-	_require_admin()
+	"""Money totals for the period. Open to Admin, Manager and Finance Manager like every other
+	report here (D-09, user 2026-10-05); the write side of the ledger stays Finance Manager / Admin."""
+	_require_management()
 	from_date, to_date = _normalize_dates(from_date, to_date, **kwargs)
 
 	base_filters = {"status": "Approved", "creation": ["between", _day_range(from_date, to_date)]}
@@ -254,16 +255,13 @@ def get_financial_overview(from_date=None, to_date=None, **kwargs):
 	}
 
 
-def _require_admin():
-	if not ({"Admin", "System Manager", "Finance Manager", "Manager"} & set(frappe.get_roles())):
-		frappe.throw("Not permitted.", frappe.PermissionError)
 
 
 @frappe.whitelist()
 def get_pending_approval_queue():
-	"""Admin-only (2026-08-29): every Pending Applicant Transaction, oldest-first -- so
+	"""Admin / Manager / Finance Manager: every Pending Applicant Transaction, oldest-first -- so
 	nothing sits forgotten waiting on Finance review, same shape as get_complaint_aging_report."""
-	_require_admin()
+	_require_management()
 	return frappe.get_all(
 		"Applicant Transaction",
 		filters={"status": "Pending"},
@@ -274,9 +272,9 @@ def get_pending_approval_queue():
 
 @frappe.whitelist()
 def get_cost_breakdown_report(from_date=None, to_date=None, **kwargs):
-	"""Admin-only: Approved Expense totals by destination_country -- what each corridor costs.
+	"""Admin / Manager / Finance Manager: Approved Expense totals by destination_country -- what each corridor costs.
 	Costs only: commissions and other income are not costs (D-17, user 2026-09-30)."""
-	_require_admin()
+	_require_management()
 	from_date, to_date = _normalize_dates(from_date, to_date, **kwargs)
 	base_filters = {
 		"status": "Approved",
@@ -307,9 +305,9 @@ def get_cost_breakdown_report(from_date=None, to_date=None, **kwargs):
 
 @frappe.whitelist()
 def get_employee_financial_report(from_date=None, to_date=None, **kwargs):
-	"""Admin-only: per-employee net expense (expenses - income, Approved only) and
+	"""Admin / Manager / Finance Manager: per-employee net expense (expenses - income, Approved only) and
 	approval/rejection rate on everything they submitted, side by side."""
-	_require_admin()
+	_require_management()
 	from_date, to_date = _normalize_dates(from_date, to_date, **kwargs)
 	day_range = _day_range(from_date, to_date)
 
