@@ -30,6 +30,34 @@ def candidate_label(applicant=None, placement=None, clearance_step=None):
 	return format_candidate(*(frappe.db.get_value("Applicant", applicant, ["full_name", "passport_number"]) or (None, None)))
 
 
+def candidate_labels(applicants=(), placements=()):
+	"""candidate_label for a whole list in two queries instead of two per row. Returns
+	`label_of(applicant=None, placement=None)` and `applicant_of(placement)`."""
+	placements = [p for p in set(placements) if p]
+	placement_applicant = {}
+	if placements:
+		placement_applicant = dict(
+			frappe.get_all("Placement", filters={"name": ["in", placements]}, fields=["name", "applicant"], as_list=True)
+		)
+	names = {a for a in applicants if a} | {a for a in placement_applicant.values() if a}
+	people = {}
+	if names:
+		people = {
+			row.name: format_candidate(row.full_name, row.passport_number)
+			for row in frappe.get_all(
+				"Applicant", filters={"name": ["in", list(names)]}, fields=["name", "full_name", "passport_number"]
+			)
+		}
+
+	def applicant_of(placement):
+		return placement_applicant.get(placement)
+
+	def label_of(applicant=None, placement=None):
+		return people.get(applicant_of(placement) or applicant, UNKNOWN_CANDIDATE)
+
+	return label_of, applicant_of
+
+
 def format_candidate(full_name, passport_number):
 	if not full_name:
 		return UNKNOWN_CANDIDATE

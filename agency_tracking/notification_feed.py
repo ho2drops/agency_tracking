@@ -28,7 +28,7 @@
 import frappe
 from frappe.utils import getdate, today
 
-from agency_tracking.labels import candidate_label, format_candidate
+from agency_tracking.labels import candidate_labels, format_candidate
 
 MEDICAL_EXPIRY_TIER_DAYS = [14, 10, 7, 3, 1]
 PASSPORT_EXPIRY_WINDOW_DAYS = 30
@@ -58,6 +58,13 @@ def medical_expiry_alerts():
 		fields=["name", "full_name", "passport_number", "medical_expiry_date", "active_placement"],
 	)
 	alerts = []
+	departed = set(
+		frappe.get_all(
+			"Placement",
+			filters={"name": ["in", [a.active_placement for a in applicants] or [""]], "status": "Departed"},
+			pluck="name",
+		)
+	)
 	for app in applicants:
 		who = format_candidate(app.full_name, app.passport_number)
 		diff_days = (getdate(app.medical_expiry_date) - getdate(today())).days
@@ -78,7 +85,7 @@ def medical_expiry_alerts():
 			continue
 		if diff_days > MEDICAL_EXPIRY_TIER_DAYS[0]:
 			continue
-		if frappe.db.get_value("Placement", app.active_placement, "status") == "Departed":
+		if app.active_placement in departed:
 			continue
 		tier = _tier_for(diff_days, MEDICAL_EXPIRY_TIER_DAYS)
 		alerts.append(
@@ -145,9 +152,10 @@ def contract_age_alerts():
 		fields=["name", "applicant", "contract_signed_date", "status"],
 	)
 	alerts = []
+	label_of, _ = candidate_labels(applicants=[p.applicant for p in placements])
 	for plc in placements:
 		age_days = (getdate(today()) - getdate(plc.contract_signed_date)).days
-		who = candidate_label(applicant=plc.applicant)
+		who = label_of(applicant=plc.applicant)
 		if age_days >= CONTRACT_AGE_CRITICAL_DAYS:
 			alerts.append(
 				{
@@ -204,9 +212,10 @@ def wakala_alerts():
 		fields=["name", "placement"],
 	)
 	alerts = []
+	label_of, applicant_of = candidate_labels(placements=[s.placement for s in steps])
 	for step in steps:
-		applicant = frappe.db.get_value("Placement", step.placement, "applicant")
-		who = candidate_label(applicant=applicant)
+		applicant = applicant_of(step.placement)
+		who = label_of(placement=step.placement)
 		alerts.append(
 			{
 				"key": f"wakala:{step.name}",
@@ -232,23 +241,29 @@ def taeshir_injaz_alerts():
 		fields=["name", "placement"],
 	)
 	alerts = []
+	attempts_of = {}
+	for attempt in frappe.get_all(
+		"Injaz Attempt",
+		filters={
+			"parent": ["in", [s.name for s in steps] or [""]],
+			"parenttype": "Clearance Step",
+			"outcome": "Active",
+			"payment_status": ["!=", "Paid"],
+		},
+		fields=["parent", "appointment_date"],
+	):
+		attempts_of.setdefault(attempt.parent, []).append(attempt)
+	label_of, applicant_of = candidate_labels(placements=[s.placement for s in steps if s.name in attempts_of])
 	for step in steps:
-		attempts = frappe.get_all(
-			"Injaz Attempt",
-			filters={"parent": step.name, "parenttype": "Clearance Step", "outcome": "Active", "payment_status": ["!=", "Paid"]},
-			fields=["appointment_date"],
-		)
-		applicant = None
-		for attempt in attempts:
+		applicant = applicant_of(step.placement)
+		for attempt in attempts_of.get(step.name, []):
 			if not attempt.appointment_date:
 				continue
 			diff_days = (getdate(attempt.appointment_date) - getdate(today())).days
 			if diff_days < 0 or diff_days > TAESHIR_INJAZ_TIER_DAYS[0]:
 				continue
 			tier = _tier_for(diff_days, TAESHIR_INJAZ_TIER_DAYS)
-			if applicant is None:
-				applicant = frappe.db.get_value("Placement", step.placement, "applicant")
-			who = candidate_label(applicant=applicant)
+			who = label_of(placement=step.placement)
 			alerts.append(
 				{
 					"key": f"taeshir-injaz:{step.name}:{tier}",
@@ -278,8 +293,9 @@ def complaint_alerts():
 		return []
 
 	alerts = []
+	label_of, _ = candidate_labels(placements=[c.get("placement") for c in complaints])
 	for comp in complaints:
-		label = candidate_label(placement=comp.get("placement"))
+		label = label_of(placement=comp.get("placement"))
 		alerts.append(
 			{
 				"key": f"complaint:{comp['name']}",
