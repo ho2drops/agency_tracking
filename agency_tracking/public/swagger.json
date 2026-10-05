@@ -4106,6 +4106,99 @@
         ]
       }
     },
+    "/api/method/agency_tracking.notification_api.get_sent_notifications": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "List the push notifications sent to the current user (\"Sent to you\")",
+        "description": "The calling user's own push notifications of the last 30 days, newest first, including the ones that did not reach a browser (delivered=false). Title and body are the text that was pushed: people are named (a candidate as \"Full Name (passport)\"), record IDs never appear. At most 50 per page. There is no user parameter: nobody can read another user's history.",
+        "x-roles": [
+          "Any authenticated user"
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded",
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "formData",
+            "type": "integer",
+            "required": false,
+            "description": "1-based page number. Default 1."
+          },
+          {
+            "name": "page_size",
+            "in": "formData",
+            "type": "integer",
+            "required": false,
+            "description": "Rows per page, 1-50. Default and maximum 50."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "object",
+                  "properties": {
+                    "notifications": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "description": "Row key for lists. Not for display."
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "body": {
+                            "type": "string"
+                          },
+                          "sent_at": {
+                            "type": "string",
+                            "description": "When the notification was recorded (server time)."
+                          },
+                          "delivered": {
+                            "type": "boolean",
+                            "description": "false = it was recorded but did not reach any browser of this user."
+                          }
+                        }
+                      }
+                    },
+                    "total_count": {
+                      "type": "integer"
+                    },
+                    "page": {
+                      "type": "integer"
+                    },
+                    "page_size": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted (role/permission check failed)"
+          },
+          "417": {
+            "description": "Validation error (business rule violated)"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/api/method/agency_tracking.notification_api.mark_alerts_read": {
       "post": {
         "tags": [

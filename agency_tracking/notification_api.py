@@ -8,6 +8,7 @@ import frappe
 from agency_tracking.notification_engine import (
 	ensure_vapid_keys,
 	generate_vapid_keys as _generate_vapid_keys,
+	_render_notification,
 	register_push_subscription as _register_push_subscription,
 	remove_push_subscription as _remove_push_subscription,
 	notify as _notify,
@@ -170,6 +171,49 @@ def get_live_alerts():
 		if state is None:
 			unread_count += 1
 	return {"alerts": alerts, "unread_count": unread_count}
+
+
+SENT_HISTORY_DAYS = 30
+SENT_HISTORY_PAGE_SIZE = 50
+
+
+@frappe.whitelist()
+def get_sent_notifications(page=1, page_size=None, **kwargs):
+	""""Sent to you": every push the calling user was sent in the last SENT_HISTORY_DAYS days,
+	newest first, whether or not it reached a browser (`delivered`). The text is rendered the same
+	way the push itself was. Always the session user's own -- there is no user parameter."""
+	from frappe.utils import add_days, cint, now_datetime
+
+	page = max(cint(page), 1)
+	size = cint(page_size)
+	size = SENT_HISTORY_PAGE_SIZE if size <= 0 else min(size, SENT_HISTORY_PAGE_SIZE)
+	filters = {
+		"recipient": frappe.session.user,
+		"channel": "Push",
+		"creation": [">=", add_days(now_datetime(), -SENT_HISTORY_DAYS)],
+	}
+	# frappe.get_all: Comms Log is not readable by most roles; the recipient filter is the session
+	# user, never caller-supplied.
+	rows = frappe.get_all(
+		"Comms Log",
+		filters=filters,
+		fields=["name", "template", "context", "status", "creation"],
+		order_by="creation desc",
+		limit_start=(page - 1) * size,
+		limit_page_length=size,
+	)
+	notifications = []
+	for row in rows:
+		title, body = _render_notification(row.template, frappe.parse_json(row.context) if row.context else {})
+		notifications.append(
+			{"name": row.name, "title": title, "body": body, "sent_at": row.creation, "delivered": row.status == "Sent"}
+		)
+	return {
+		"notifications": notifications,
+		"total_count": frappe.db.count("Comms Log", filters),
+		"page": page,
+		"page_size": size,
+	}
 
 
 @frappe.whitelist()
