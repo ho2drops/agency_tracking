@@ -41,7 +41,6 @@ def _cv_context(applicant):
 		salary = f"{frappe.utils.fmt_money(applicant.salary_amount, precision=0)} {applicant.salary_currency or ''}".strip()
 
 	ctx = {
-		"applicant_name": applicant.name,
 		"full_name": applicant.full_name or "",
 		"job_applied": applicant.target_job or "House Maid",
 		"monthly_salary": salary or None,
