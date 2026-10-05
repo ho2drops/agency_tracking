@@ -243,13 +243,20 @@ def _deliver_push(log):
 		raise Exception("; ".join(errors))
 
 
+def whatsapp_configured(config=None):
+	"""True once Notification Config holds both WhatsApp Cloud API values. Callers that pair a push
+	with a WhatsApp message ask this first, so nothing is attempted or logged before it is set up."""
+	config = config or frappe.get_single("Notification Config")
+	return bool(config.get_password("whatsapp_access_token", raise_exception=False) and config.whatsapp_phone_number_id)
+
+
 def _deliver_whatsapp(log):
 	import requests
 
 	config = frappe.get_single("Notification Config")
-	token = config.get_password("whatsapp_access_token", raise_exception=False)
-	if not token or not config.whatsapp_phone_number_id:
+	if not whatsapp_configured(config):
 		raise Exception("WhatsApp Cloud API not configured (Notification Config).")
+	token = config.get_password("whatsapp_access_token")
 
 	context = frappe.parse_json(log.context) if log.context else {}
 	phone = context.get("phone")

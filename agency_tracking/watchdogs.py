@@ -10,16 +10,13 @@ import frappe
 from frappe.utils import add_days, getdate, today
 
 from agency_tracking.clearance_engine import get_lmis_officer
-from agency_tracking.notification_engine import notify
+from agency_tracking.notification_engine import notify, whatsapp_configured
 
 MEDICAL_EXPIRY_TIERS_DAYS = [14, 10, 7, 3, 1]
 
 
-def _daily_notifier(template):
-	"""Returns a `send(recipient, context)` that de-duplicates within a day (audit N-4): the same
-	recipient is never pinged twice for the same (template, placement) on the same date -- guarding
-	scheduler re-runs, overlapping tiers, and repeated sweeps. One Comms Log query per watchdog run
-	(not per notification), so it stays O(1) in queries."""
+def _sent_today(template):
+	"""{(recipient, placement)} already notified today with this template."""
 	sent = set()
 	for row in frappe.get_all(
 		"Comms Log",
@@ -28,6 +25,15 @@ def _daily_notifier(template):
 	):
 		ctx = frappe.parse_json(row.context) if row.context else {}
 		sent.add((row.recipient, ctx.get("placement")))
+	return sent
+
+
+def _daily_notifier(template):
+	"""Returns a `send(recipient, context)` that de-duplicates within a day (audit N-4): the same
+	recipient is never pinged twice for the same (template, placement) on the same date -- guarding
+	scheduler re-runs, overlapping tiers, and repeated sweeps. One Comms Log query per watchdog run
+	(not per notification), so it stays O(1) in queries."""
+	sent = _sent_today(template)
 
 	def send(recipient, context):
 		key = (recipient, context.get("placement"))
@@ -127,8 +133,13 @@ def wakala_reminder_watchdog():
 		filters={"step_type": "Embassy", "wakala_status": ["!=", "Paid"], "status": ["not in", ["Stamped", "Cancelled"]]},
 		fields=["name", "placement"],
 	)
+	# One reminder per step per day, however often the sweep runs. A placement has one Embassy step,
+	# so "this placement was reminded today" identifies the step. The manual trigger
+	# (notification_api.trigger_wakala_reminder) is a person's decision and is not limited here.
+	reminded = {placement for _recipient, placement in _sent_today("wakala_payment_reminder")}
 	for step in unpaid_steps:
-		send_wakala_reminder(step.name, step.placement)
+		if step.placement not in reminded:
+			send_wakala_reminder(step.name, step.placement)
 
 
 def send_wakala_reminder(clearance_step_name, placement_name):
@@ -147,9 +158,11 @@ def send_wakala_reminder(clearance_step_name, placement_name):
 		"wakala_payment_reminder",
 		{"clearance_step": clearance_step_name, "placement": placement_name},
 	)
-	# WhatsApp reminder too, per the spec's explicit "WhatsApp + portal notification" pairing —
-	# whatsapp delivery falls back gracefully (attempt_push_delivery never raises) if the
-	# contractor's phone isn't set or WhatsApp isn't configured yet.
+	# WhatsApp reminder too, per the spec's explicit "WhatsApp + portal notification" pairing, once
+	# WhatsApp is set up; until then nothing is attempted or logged. Delivery falls back gracefully
+	# (attempt_push_delivery never raises) if the contractor's phone isn't set.
+	if not whatsapp_configured():
+		return
 	notify(
 		recipient,
 		"wakala_payment_reminder",
