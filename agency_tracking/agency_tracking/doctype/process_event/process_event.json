@@ -12,6 +12,7 @@
   "col_break_event",
   "from_status",
   "to_status",
+  "reverses_event",
   "actor",
   "remarks"
  ],
@@ -42,7 +43,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Event Type",
-   "options": "Transition\nOverride\nCancelled\nRestored\nVoided\nAction\nAccess",
+   "options": "Transition\nOverride\nCancelled\nRestored\nVoided\nAction\nAccess\nReversal",
    "read_only": 1,
    "reqd": 1
   },
@@ -63,6 +64,14 @@
    "read_only": 1
   },
   {
+   "description": "For a Reversal: the event it undoes.",
+   "fieldname": "reverses_event",
+   "fieldtype": "Link",
+   "label": "Reverses Event",
+   "options": "Process Event",
+   "read_only": 1
+  },
+  {
    "fieldname": "actor",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -80,7 +89,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-25 13:00:00.000000",
+ "modified": "2026-10-05 17:00:00.000000",
  "modified_by": "Administrator",
  "module": "Agency Tracking",
  "name": "Process Event",

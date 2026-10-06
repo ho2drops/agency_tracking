@@ -24,6 +24,7 @@
   "awaiting_fx_rate",
   "fx_rate_old",
   "description",
+  "system_note",
   "clearance_step",
   "fee_type",
   "injaz_attempt",
@@ -172,6 +173,13 @@
    "label": "Description/Remark"
   },
   {
+   "description": "Written by the system when this row was voided or re-entered by an undo.",
+   "fieldname": "system_note",
+   "fieldtype": "Small Text",
+   "label": "System Note",
+   "read_only": 1
+  },
+  {
    "fieldname": "clearance_step",
    "fieldtype": "Link",
    "label": "Clearance Step",
@@ -240,7 +248,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-05 16:00:00.000000",
+ "modified": "2026-10-05 17:00:00.000000",
  "modified_by": "Administrator",
  "module": "Agency Tracking",
  "name": "Applicant Transaction",

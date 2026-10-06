@@ -12,6 +12,7 @@
   "generated_on",
   "generated_by",
   "cv_pdf_url",
+  "superseded",
   "amended_from"
  ],
  "fields": [
@@ -57,6 +58,14 @@
    "read_only": 1
   },
   {
+   "default": "0",
+   "description": "Set when the CV Generated step was undone. The record and its PDF are kept.",
+   "fieldname": "superseded",
+   "fieldtype": "Check",
+   "label": "Superseded",
+   "read_only": 1
+  },
+  {
    "fieldname": "amended_from",
    "fieldtype": "Link",
    "label": "Amended From",
@@ -69,7 +78,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-09-30 13:00:00.000000",
+ "modified": "2026-10-05 17:00:00.000000",
  "modified_by": "Administrator",
  "module": "Agency Tracking",
  "name": "CV Record",
