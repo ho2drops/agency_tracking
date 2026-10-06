@@ -60,7 +60,20 @@ class ClearanceStep(Document):
 				frappe.ValidationError,
 			)
 		self._require_paid_injaz_to_complete_taeshir()
+		self._keep_lmis_status_in_step()
 		self._set_title()
+
+	def _keep_lmis_status_in_step(self):
+		"""An LMIS step's working status says ISSUED exactly when the step is Issued, however it got
+		there (Issue button, grid, undo). Other step types have no LMIS status."""
+		from agency_tracking.clearance_api import LMIS_ISSUED, LMIS_STEP_TYPES
+
+		if self.step_type not in LMIS_STEP_TYPES:
+			self.lmis_status = None
+		elif self.status == "Issued":
+			self.lmis_status = LMIS_ISSUED
+		elif self.lmis_status == LMIS_ISSUED:
+			self.lmis_status = None
 
 	def _require_paid_injaz_to_complete_taeshir(self):
 		"""2026-09-23: Taeshir can't be completed until the Injaz attempt it completes on is Paid

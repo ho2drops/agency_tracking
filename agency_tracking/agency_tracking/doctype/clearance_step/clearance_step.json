@@ -13,6 +13,7 @@
   "is_mandatory",
   "col_break_clearance",
   "status",
+  "lmis_status",
   "date_started",
   "date_completed",
   "completed_by",
@@ -94,6 +95,14 @@
    "in_standard_filter": 1,
    "label": "Status",
    "options": "Pending\nIn Progress\nSubmitted\nComplete\nIssued\nStamped\nRejected\nCancelled"
+  },
+  {
+   "depends_on": "eval:['LMIS Clearance','Kuwait LMIS'].includes(doc.step_type)",
+   "description": "LMIS steps only: the office's own working status. ISSUED is the step done (status Issued); every other value is a label on a step that is still waiting. Set through clearance_api.set_lmis_status.",
+   "fieldname": "lmis_status",
+   "fieldtype": "Select",
+   "label": "LMIS Status",
+   "options": "\nNO FILE & NO COC\nNO FILE & TAKEN\nNO FILE & PULLED\nNO FILE & MEDICAL NOT ONLINE\nHAVE FILE & TAKEN\nHAVE FILE & PULLED\nHAVE FILE & MEDICAL NOT ONLINE\nHAVE FILE & NO COC\nPULLED\nINSURANCE\nPAYMENT\nPAYMENT SUBMITTED\nPAYMENT VERIFIED\nCHECKED\nISSUED\nVERIFIED\nMOLS PENDING\nPARTNER PENDING\nCOC NOT ONLINE\nTAKEN"
   },
   {
    "fieldname": "date_started",

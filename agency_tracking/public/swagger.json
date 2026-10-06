@@ -2447,6 +2447,75 @@
         ]
       }
     },
+    "/api/method/agency_tracking.clearance_api.set_lmis_status": {
+      "post": {
+        "tags": [
+          "Clearance Steps"
+        ],
+        "summary": "Set an LMIS step's working status",
+        "description": "LMIS steps only (LMIS Clearance, Kuwait LMIS). lmis_status is one of: NO FILE & NO COC, NO FILE & TAKEN, NO FILE & PULLED, NO FILE & MEDICAL NOT ONLINE, HAVE FILE & TAKEN, HAVE FILE & PULLED, HAVE FILE & MEDICAL NOT ONLINE, HAVE FILE & NO COC, PULLED, INSURANCE, PAYMENT, PAYMENT SUBMITTED, PAYMENT VERIFIED, CHECKED, ISSUED, VERIFIED, MOLS PENDING, PARTNER PENDING, COC NOT ONLINE, TAKEN. ISSUED completes the step exactly as complete_clearance_step does (reference_no and date_completed are passed on). Every other value is a label only: the step stays Pending / In Progress. 417 on an Issued step: undo it first. The value comes back as lmis_status on the step, in list_my_clearance_steps and in the LMIS grid (column lmis_status, editable).",
+        "x-roles": [
+          "The step's LMIS role",
+          "Assigned officer",
+          "Manager",
+          "Admin"
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded",
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "clearance_step_name",
+            "in": "formData",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "lmis_status",
+            "in": "formData",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "reference_no",
+            "in": "formData",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "date_completed",
+            "in": "formData",
+            "type": "string",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "$ref": "#/definitions/ClearanceStepDoc"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted (role/permission check failed)"
+          },
+          "417": {
+            "description": "Validation error (business rule violated)"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/api/method/agency_tracking.clearance_api.submit_embassy_step": {
       "post": {
         "tags": [

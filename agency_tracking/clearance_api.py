@@ -76,6 +76,33 @@ TERMINAL_STATUS_BY_STEP_TYPE = {
 }
 DEFAULT_TERMINAL_STATUS = "Complete"
 
+# LMIS steps (both corridors) carry the office's own working status next to the step's status.
+# ISSUED is the step done; every other one is a label on a step that is still waiting.
+LMIS_STEP_TYPES = ("LMIS Clearance", "Kuwait LMIS")
+LMIS_ISSUED = "ISSUED"
+LMIS_STATUSES = [
+	"NO FILE & NO COC",
+	"NO FILE & TAKEN",
+	"NO FILE & PULLED",
+	"NO FILE & MEDICAL NOT ONLINE",
+	"HAVE FILE & TAKEN",
+	"HAVE FILE & PULLED",
+	"HAVE FILE & MEDICAL NOT ONLINE",
+	"HAVE FILE & NO COC",
+	"PULLED",
+	"INSURANCE",
+	"PAYMENT",
+	"PAYMENT SUBMITTED",
+	"PAYMENT VERIFIED",
+	"CHECKED",
+	LMIS_ISSUED,
+	"VERIFIED",
+	"MOLS PENDING",
+	"PARTNER PENDING",
+	"COC NOT ONLINE",
+	"TAKEN",
+]
+
 
 def _is_assigned_officer(clearance_step_name):
 	return bool(
@@ -178,6 +205,30 @@ def complete_clearance_step(
 	)
 	_close_open_todos(clearance_step_name)
 	auto_advance_placement_if_ready(step.placement)
+	return step.as_dict()
+
+
+@frappe.whitelist()
+def set_lmis_status(clearance_step_name=None, lmis_status=None, reference_no=None, date_completed=None, **kwargs):
+	"""Set an LMIS step's working status (one of LMIS_STATUSES). ISSUED completes the step, exactly
+	as complete_clearance_step does (reference_no / date_completed are passed on). Any other value
+	is only a label: the step stays where it is. An Issued step is not relabelled; undo it first."""
+	clearance_step_name = clearance_step_name or kwargs.get("name") or kwargs.get("clearance_step")
+	lmis_status = lmis_status or kwargs.get("status")
+	step = _load_actionable_step(clearance_step_name, set(LMIS_STEP_TYPES))
+	if not _can_act_on_step(step):
+		frappe.throw("Not permitted.", frappe.PermissionError)
+	if lmis_status not in LMIS_STATUSES:
+		frappe.throw(f"'{lmis_status}' isn't an LMIS status.", frappe.ValidationError)
+	if lmis_status == LMIS_ISSUED:
+		return complete_clearance_step(clearance_step_name=step.name, reference_no=reference_no, date_completed=date_completed)
+	if step.status == "Issued":
+		frappe.throw("This step is already Issued. Undo that first to change its LMIS status.", frappe.ValidationError)
+	if step.lmis_status != lmis_status:
+		was = step.lmis_status
+		step.lmis_status = lmis_status
+		step.save(ignore_permissions=True)
+		log_action("Clearance Step", step.name, f"[{step.title or step.name}] LMIS status: {was or '-'} -> {lmis_status}")
 	return step.as_dict()
 
 
@@ -593,6 +644,7 @@ def list_my_clearance_steps(placement=None):
 			"placement",
 			"step_type",
 			"status",
+			"lmis_status",
 			"sequence_order",
 			"is_mandatory",
 			"date_started",

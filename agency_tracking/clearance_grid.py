@@ -72,6 +72,7 @@ def _editable_columns(step_type):
 		("date_completed", "Completed On", "Date", None),
 	]
 	if step_type in LMIS_TYPES:
+		cols.insert(1, ("lmis_status", "LMIS Status", "Select", clearance_api.LMIS_STATUSES))
 		cols += _LMIS_APPLICANT_COLUMNS
 	if step_type == "Kuwait LMIS":
 		cols += [
@@ -205,7 +206,7 @@ def _grid_rows(steps):
 
 
 _STEP_FIELDS = [
-	"name", "placement", "step_type", "status", "sequence_order", "is_mandatory", "date_started",
+	"name", "placement", "step_type", "status", "lmis_status", "sequence_order", "is_mandatory", "date_started",
 	"date_completed", "completed_by", "reference_no", "rejection_remark", "wakala_status",
 	"wakala_reference_no", "police_ashara_status", "police_ashara_appointment_date",
 	"police_ashara_remark", "modified",
@@ -354,6 +355,13 @@ def _apply_row(step, fields, override_reason, cell):
 		)
 
 	step.reload()
+	if "lmis_status" in fields and fields["lmis_status"] != step.lmis_status:
+		# ISSUED here is the completion itself; the Status cell of the same row then has nothing left to do.
+		cell.append("lmis_status")
+		clearance_api.set_lmis_status(
+			name, lmis_status=fields["lmis_status"], reference_no=fields.get("reference_no"), date_completed=fields.get("date_completed")
+		)
+		step.reload()
 	if "status" in fields and fields["status"] != step.status:
 		cell.append("status")
 		_apply_status(step, fields["status"], fields, override_reason)
