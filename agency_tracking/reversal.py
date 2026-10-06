@@ -492,10 +492,11 @@ def _may_unselect(placement):
 	roles = set(frappe.get_roles())
 	if frappe.session.user == "Administrator" or OVERSIGHT_ROLES & roles:
 		return True
-	if _own_agency_placement(placement):
-		return True
-	track = frappe.db.get_value("Applicant", placement.applicant, "entry_track")
-	return track == "Muayena" and bool({CONTRACT_PARSER, REGISTRAR} & roles)
+	# Whoever made the selection takes it back: the agency on the portal (Standard), or the staff
+	# who placed a Muayena candidate with the contract in hand. An agency did not select the latter.
+	if frappe.db.get_value("Applicant", placement.applicant, "entry_track") == "Muayena":
+		return bool({CONTRACT_PARSER, REGISTRAR} & roles)
+	return _own_agency_placement(placement)
 
 
 def _unselect(placement, reason):
