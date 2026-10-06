@@ -599,7 +599,7 @@ def _undo_cancel(applicant, event, reason):
 		_write_reversal_event(placement, closing, "Cancelled", closing.from_status, reason, "restored with its applicant")
 		for step in frappe.get_all("Clearance Step", {"placement": placement.name, "status": "Cancelled"}, pluck="name"):
 			before = _status_before_the_cascade(step)
-			if not before:
+			if not before or before == "Cancelled":  # it was history before the cancel, and stays so
 				continue
 			frappe.db.set_value("Clearance Step", step, "status", before)
 			log_action("Clearance Step", step, f"Restored with the case (back to {before})", from_status="Cancelled", to_status=before)

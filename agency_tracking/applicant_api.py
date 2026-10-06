@@ -305,7 +305,10 @@ def cancel_applicant_cascade(doc, reason):
 	if doc.active_placement:
 		placement = frappe.get_doc("Placement", doc.active_placement)
 		transition(placement, "Cancelled", remarks=reason, ignore_permissions=True)
-		steps = frappe.get_all("Clearance Step", {"placement": placement.name}, ["name", "status"])
+		# Steps that are already cancelled (an undone move to Processing) are history: left alone.
+		steps = frappe.get_all(
+			"Clearance Step", {"placement": placement.name, "status": ["!=", "Cancelled"]}, ["name", "status"]
+		)
 		frappe.db.set_value(
 			"Clearance Step", {"placement": placement.name}, "status", "Cancelled"
 		)
