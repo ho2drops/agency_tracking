@@ -96,7 +96,8 @@ class ClearanceStep(Document):
 
 	def on_update(self):
 		# Client item #12 (2026-09-23): a completed step records its configured corridor fees as
-		# auto-Approved Expenses. Idempotent, so corrections / reopen + re-complete never re-post.
+		# auto-Approved Expenses. Idempotent, so a correction never re-posts. Undoing the step voids
+		# the fee, and finishing it again records it again (reversal.py, Stage B).
 		from agency_tracking.stage_fees import post_step_fees
 
 		post_step_fees(self)

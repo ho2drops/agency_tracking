@@ -183,6 +183,21 @@ ALLOWED_TRANSITIONS = {
 		("Pending", "Rejected"),
 		("Approved", "Voided"),
 	},
+	# Clearance steps (Stage B of the reversible state machine, qa/10): every status a step
+	# action sets is an edge here, so a step's moves leave history lines and can be undone like
+	# any other record's. A step is cancelled only with its case (cancel cascade, undone move to
+	# Processing), never by an action of its own, so Cancelled is not an edge.
+	"Clearance Step": {
+		("Pending", "In Progress"),
+		("Pending", "Complete"),
+		("In Progress", "Complete"),
+		("Pending", "Issued"),
+		("In Progress", "Issued"),
+		("Pending", "Submitted"),
+		("In Progress", "Submitted"),
+		("Submitted", "Stamped"),
+		("Submitted", "Rejected"),
+	},
 	"Complaint": {
 		("New", "Unresolved"),
 		("Unresolved", "Resolved"),

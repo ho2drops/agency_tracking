@@ -61,6 +61,7 @@ def final_injaz_attempt(step):
 def _record_fee(step, placement, row, injaz_attempt=None):
 	"""Insert one auto-Approved Expense for `row` unless this (step, fee, attempt) already has
 	one -- in any status, so a row Finance deliberately voided is never silently re-created.
+	(Only a row voided by the undo of the step itself is set aside, see below.)
 	If the fee's currency has never had an FX rate, it's still recorded -- in its own currency,
 	awaiting_fx_rate=1, amount_birr 0 -- and converted when a rate is recorded
 	(finance_engine.convert_awaiting_fx). Any other failure is logged and rolled back to a
@@ -71,7 +72,11 @@ def _record_fee(step, placement, row, injaz_attempt=None):
 		"fee_type": row.fee_type,
 		"injaz_attempt": attempt_name or ["is", "not set"],
 	}
-	if frappe.db.exists("Applicant Transaction", key):
+	# A fee voided by the undo of its step does not count: finishing the step again records it again.
+	from agency_tracking.reversal import VOIDED_BY_UNDO
+
+	existing = frappe.get_all("Applicant Transaction", filters=key, fields=["status", "system_note"])
+	if any(not (r.status == "Voided" and (r.system_note or "").startswith(VOIDED_BY_UNDO)) for r in existing):
 		return None
 
 	from decimal import Decimal

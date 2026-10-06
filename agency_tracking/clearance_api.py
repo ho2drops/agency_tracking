@@ -18,6 +18,7 @@ from agency_tracking.state_machine import (
 	auto_advance_placement_if_ready,
 	log_action,
 	sanctioned_write,
+	transition,
 )
 
 INJAZ_TEMPLATE = "templates/injaz_document.html"
@@ -105,6 +106,19 @@ def _close_open_todos(clearance_step_name):
 	close_open_todos("Clearance Step", clearance_step_name)
 
 
+def _move_step(step, new_status, remarks=None):
+	"""Save a step action. A change of status is a move of the state machine (legal edge, history
+	line, can be undone -- reversal.py); a save at the same status is a data correction and is
+	only noted."""
+	if step.status != new_status:
+		transition(step, new_status, remarks=remarks, ignore_permissions=True)
+		return
+	with sanctioned_write():  # a guarded step action (QA A1)
+		step.save(ignore_permissions=True)
+	if remarks:
+		log_action("Clearance Step", step.name, remarks)
+
+
 @frappe.whitelist()
 def complete_clearance_step(
 	clearance_step_name=None,
@@ -144,7 +158,6 @@ def complete_clearance_step(
 
 	if not step.date_started:
 		step.date_started = today()
-	step.status = terminal_status
 	if date_completed:
 		step.date_completed = date_completed
 	elif not is_correction:
@@ -157,15 +170,13 @@ def complete_clearance_step(
 	if amount is not None:
 		step.amount = amount
 		step.payment_status = "Paid"
-	with sanctioned_write():  # a guarded step action (QA A1)
-		step.save(ignore_permissions=True)
-	_close_open_todos(clearance_step_name)
-	log_action(
-		"Clearance Step",
-		step.name,
+	_move_step(
+		step,
+		terminal_status,
 		f"[{step.title or step.name}] {'Corrected' if is_correction else terminal_status}"
 		f" (reference {step.reference_no or '-'}, date {step.date_completed or '-'})",
 	)
+	_close_open_todos(clearance_step_name)
 	auto_advance_placement_if_ready(step.placement)
 	return step.as_dict()
 
@@ -209,11 +220,8 @@ def start_clearance_step(clearance_step_name=None, step_name=None, name=None, **
 	# S-2: only a not-yet-started step can be started (never revert a Submitted/Complete/etc. step).
 	if step.status != "Pending":
 		frappe.throw(f"A '{step.status}' clearance step cannot be (re)started.", frappe.ValidationError)
-	step.status = "In Progress"
 	step.date_started = today()
-	with sanctioned_write():  # a guarded step action (QA A1)
-		step.save(ignore_permissions=True)
-	log_action("Clearance Step", step.name, f"[{step.title or step.name}] Started")
+	_move_step(step, "In Progress", f"[{step.title or step.name}] Started")
 	return step.as_dict()
 
 
@@ -246,10 +254,8 @@ def submit_embassy_step(clearance_step_name=None, override_reason=None, **kwargs
 			step.name,
 			f"[{step.title or step.name}] Submitted with Wakala unpaid (Manager override): {override_reason}",
 		)
-	step.status = "Submitted"
 	step.date_started = today()
-	with sanctioned_write():  # a guarded step action (QA A1)
-		step.save(ignore_permissions=True)
+	_move_step(step, "Submitted", f"[{step.title or step.name}] Submitted")
 	return step.as_dict()
 
 
@@ -343,19 +349,16 @@ def stamp_embassy_step(clearance_step_name=None, reference_no=None, override_rea
 			step.name,
 			f"[{step.title or step.name}] Stamped with Wakala unpaid (Manager override): {override_reason}",
 		)
-	step.status = "Stamped"
 	step.date_completed = today()
 	step.completed_by = frappe.session.user
 	if reference_no:
 		step.reference_no = reference_no
-	with sanctioned_write():  # a guarded step action (QA A1)
-		step.save(ignore_permissions=True)
-	_close_open_todos(clearance_step_name)
-	log_action(
-		"Clearance Step",
-		step.name,
+	_move_step(
+		step,
+		"Stamped",
 		f"[{step.title or step.name}] {'Corrected' if is_correction else 'Stamped'} (reference {step.reference_no or '-'})",
 	)
+	_close_open_todos(clearance_step_name)
 	auto_advance_placement_if_ready(step.placement)
 	return step.as_dict()
 
@@ -380,18 +383,15 @@ def reject_embassy_step(clearance_step_name=None, rejection_remark=None, **kwarg
 	if step.status not in ("Submitted", "Rejected"):
 		frappe.throw(f"Documents must be Submitted before they can be Rejected (this step is '{step.status}').", frappe.ValidationError)
 	is_correction = step.status == "Rejected"
-	step.status = "Rejected"
 	step.rejection_remark = rejection_remark
 	step.date_completed = today()
 	step.completed_by = frappe.session.user
-	with sanctioned_write():  # a guarded step action (QA A1)
-		step.save(ignore_permissions=True)
-	_close_open_todos(clearance_step_name)
-	log_action(
-		"Clearance Step",
-		step.name,
+	_move_step(
+		step,
+		"Rejected",
 		f"[{step.title or step.name}] {'Rejection remark corrected' if is_correction else 'Rejected'}: {rejection_remark}",
 	)
+	_close_open_todos(clearance_step_name)
 	return step.as_dict()
 
 
@@ -432,31 +432,32 @@ def _renotify_reopened_step(step, previous_completed_by):
 		frappe.log_error(title="Reopen re-notify failed", message=f"{step.name}: {frappe.get_traceback()}")
 
 
+REOPEN_TARGETS = ("Pending", "In Progress", "Submitted")  # in the order a step passes them
+
+
 @frappe.whitelist()
 def reopen_clearance_step(clearance_step_name=None, reason=None, target_status=None, **kwargs):
-	"""Manager/Admin/System Manager only. Reverses a step's own terminal OUTCOME (Issued/Complete/
-	Stamped/Rejected) when the determination itself was wrong, not just its data -- e.g. an LMIS
-	officer marked a step Issued by mistake and needs to genuinely undo that, not just correct a
-	reference number (complete_clearance_step's own correction path already covers that case).
+	"""Manager/Admin/System Manager only. Takes a step back from its outcome (Issued / Complete /
+	Stamped / Rejected) when the determination itself was wrong, not just its data
+	(complete_clearance_step's own correction path covers a wrong reference number).
 
-	Deliberately scoped to ONLY this step: does not touch, re-check, or cascade into anything
-	downstream that may already have relied on the old (wrong) result -- e.g. Embassy work done on
-	the assumption LMIS was genuinely Issued, or a Placement that already auto-advanced to Stamped.
-	Automatically unwinding those is a much bigger, riskier feature than this one; instead,
-	state_machine's Stamped->Ticketed gate re-checks that every mandatory step is still complete at
-	that point, so reopening one here quietly blocks Ticketing until a human notices and
-	re-completes it -- it doesn't need to reverse the Placement itself."""
+	Since Stage B of the reversible state machine this is the same undo as
+	reversal.reverse_last_step, one move at a time: the step goes back the way it came, the fee
+	its completion recorded is voided, its task is open again, and each move back is a Reversal
+	line in its history. target_status is how far back to go; a step is never put at a status it
+	has not been at (one completed straight from Pending goes back to Pending). The reason is
+	recorded when given. Refused while the case has moved past Processing: undo that first."""
+	from agency_tracking import reversal
+
 	clearance_step_name = clearance_step_name or kwargs.get("name") or kwargs.get("clearance_step")
 	if not clearance_step_name:
 		frappe.throw("clearance_step_name is required.", frappe.ValidationError)
-	if not reason:
-		frappe.throw("A reason is required to reopen a clearance step.", frappe.ValidationError)
 	if not ({"Manager", "Admin", "System Manager"} & set(frappe.get_roles())):
 		frappe.throw("Not permitted.", frappe.PermissionError)
 
 	step = _load_actionable_step(clearance_step_name)
 	is_embassy = step.step_type in ("Embassy", "Kuwait Embassy")
-	valid_targets = {"Pending", "In Progress", "Submitted"} if is_embassy else {"Pending", "In Progress"}
+	valid_targets = set(REOPEN_TARGETS) if is_embassy else set(REOPEN_TARGETS[:2])
 	target_status = target_status or "In Progress"
 	if target_status not in valid_targets:
 		frappe.throw(
@@ -467,22 +468,10 @@ def reopen_clearance_step(clearance_step_name=None, reason=None, target_status=N
 	if step.status == target_status:
 		frappe.throw(f"{step.name} is already '{target_status}'.", frappe.ValidationError)
 
-	previous_status = step.status
-	previous_completed_by = step.completed_by
-	step.status = target_status
-	step.date_completed = None
-	step.completed_by = None
-	if is_embassy and previous_status == "Rejected":
-		step.rejection_remark = None
-	with sanctioned_write():  # a guarded step action (QA A1)
-		step.save(ignore_permissions=True)
-	_renotify_reopened_step(step, previous_completed_by)
-	log_action(
-		"Clearance Step",
-		step.name,
-		f"[{step.title or step.name}] Reopened: '{previous_status}' -> '{target_status}' ({reason})",
-	)
-	return step.as_dict()
+	status = reversal.reverse_last_step(doctype="Clearance Step", name=step.name, reason=reason)["status"]
+	while status in REOPEN_TARGETS and REOPEN_TARGETS.index(status) > REOPEN_TARGETS.index(target_status):
+		status = reversal.reverse_last_step(doctype="Clearance Step", name=step.name, reason=reason)["status"]
+	return frappe.get_doc("Clearance Step", step.name).as_dict()
 
 
 @frappe.whitelist()

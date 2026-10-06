@@ -38,9 +38,12 @@ class Undo:
 	apply    -- apply(doc, event, reason) -> (from_status, to_status, note): replaces the plain
 	            "set the earlier status and save" for moves that are not undone by a status
 	            change (ledger rows are voided and re-entered, never set back).
+	may      -- may(doc) -> bool: for records whose responsible role depends on the record itself
+	            (a clearance step belongs to the role of its step type, or its assigned officer).
 	"""
 
-	def __init__(self, roles, check=None, prepare=None, effect=None, apply=None):
+	def __init__(self, roles, check=None, prepare=None, effect=None, apply=None, may=None):
+		self.may = may
 		self.roles = set(roles)
 		self.check = check
 		self.prepare = prepare
@@ -78,9 +81,11 @@ def latest_forward_event(doctype, name):
 	return events[0] if events else None
 
 
-def _may_undo(rule):
+def _may_undo(rule, doc=None):
 	roles = set(frappe.get_roles())
-	return frappe.session.user == "Administrator" or bool((rule.roles | OVERSIGHT_ROLES) & roles)
+	if frappe.session.user == "Administrator" or (rule.roles | OVERSIGHT_ROLES) & roles:
+		return True
+	return bool(rule.may and doc is not None and rule.may(doc))
 
 
 def _write_reversal_event(doc, event, from_status, to_status, reason, note):
@@ -122,15 +127,17 @@ def reverse_last_step(doctype=None, name=None, reason=None, from_status=None, **
 
 	lock_doc_row(doctype, name)  # two undos, or an undo and a forward move, go one after the other
 	doc = frappe.get_doc(doctype, name)
-	event = latest_forward_event(doctype, name)
+	event = latest_forward_event(doctype, name) or _move_without_history(doc)
 	if doctype == "Placement" and not event and doc.status == "Selected":
 		return _run_unselect(doc, reason, from_status)
 	rule = UNDO.get((doctype, event.from_status, event.to_status)) if event else None
 	# Permission before anything about the record's state is revealed.
-	if not _may_undo(rule or Undo(roles=_roles_for(doctype))):
+	if not _may_undo(rule or Undo(roles=_roles_for(doctype), may=_may_for(doctype)), doc):
 		who = ", ".join(sorted((rule.roles if rule else _roles_for(doctype)))) or "the responsible role"
 		frappe.throw(f"Only {who} or a Manager can undo this step.", frappe.PermissionError)
 	_still_where_the_screen_saw_it(doc, from_status)
+	if doctype == "Clearance Step" and doc.status == "Cancelled":
+		frappe.throw("This step was cancelled with its case. It cannot be undone on its own.", frappe.ValidationError)
 	if not event:
 		frappe.throw("Nothing to undo: this record has not moved yet.", frappe.ValidationError)
 	if event.to_status != doc.status:
@@ -172,6 +179,20 @@ def _still_where_the_screen_saw_it(doc, from_status):
 	now = frappe.db.get_value(doc.doctype, doc.name, "status", for_update=True)
 	if from_status not in (now, doc.status) or now != doc.status:
 		frappe.throw("This record has changed since the page was loaded. Reload and try again.", frappe.ValidationError)
+
+
+def _may_for(doctype):
+	"""The record-specific permission of this record type, if it has one (see Undo.may)."""
+	return next((rule.may for (dt, _, _), rule in UNDO.items() if dt == doctype and rule.may), None)
+
+
+def _move_without_history(doc):
+	"""Clearance steps only: a step that is past Pending with no move left in its history was
+	moved before step moves were recorded (before Stage B). It can still be taken back, to the
+	status such a step comes from; the Reversal line then names no event."""
+	if doc.doctype != "Clearance Step" or doc.status not in STEP_STATUS_BEFORE:
+		return None
+	return frappe._dict(name=None, from_status=STEP_STATUS_BEFORE[doc.status], to_status=doc.status)
 
 
 def _all_undo_roles():
@@ -303,6 +324,8 @@ UNDO[("Applicant Transaction", "Approved", "Voided")] = Undo(LEDGER_ROLES, check
 
 # --- Shared: taking money off the books ------------------------------------------------------
 
+VOIDED_BY_UNDO = "Voided by the undo of"  # how such a row's system note starts (stage_fees reads it)
+
 
 def _void_rows(filters, why):
 	"""Void every Approved ledger row matching `filters`, each with a system note and its own
@@ -311,7 +334,7 @@ def _void_rows(filters, why):
 	for name in names:
 		txn = frappe.get_doc("Applicant Transaction", name)
 		txn.status = "Voided"
-		txn.system_note = f"Voided by the undo of {why}."
+		txn.system_note = f"{VOIDED_BY_UNDO} {why}."
 		txn.save(ignore_permissions=True)
 		frappe.get_doc(
 			{
@@ -322,7 +345,7 @@ def _void_rows(filters, why):
 				"from_status": "Approved",
 				"to_status": "Voided",
 				"actor": frappe.session.user,
-				"remarks": f"Voided by the undo of {why}.",
+				"remarks": f"{VOIDED_BY_UNDO} {why}.",
 			}
 		).insert(ignore_permissions=True)
 	return names
@@ -620,6 +643,85 @@ for _target in ("Draft", "Registered"):
 	UNDO[("Applicant", "Cancelled", _target)] = Undo(APPLICANT_ROLES, check=_nothing_on_this_cycle, prepare=_step_back_a_cycle)
 
 
+# --- Clearance Step (Stage B) ----------------------------------------------------------------
+# A step's moves are made by clearance_api through transition(). Each is undone by the step's own
+# role (or its assigned officer), one at a time, while the case is still in Processing: once the
+# case is Stamped it has relied on the step, so Stamped is undone first.
+
+STEP_STATUS_BEFORE = {
+	"In Progress": "Pending",
+	"Submitted": "In Progress",
+	"Complete": "In Progress",
+	"Issued": "In Progress",
+	"Stamped": "Submitted",
+	"Rejected": "Submitted",
+}
+
+
+def _may_act_on_step(step):
+	from agency_tracking.clearance_api import _can_act_on_step
+
+	return _can_act_on_step(step)
+
+
+def _case_still_in_processing(step, event):
+	status = frappe.db.get_value("Placement", step.placement, "status")
+	if status in ("Stamped", "Ticketed"):
+		frappe.throw(
+			f"This case has already moved on to {status}. Undo that step of the case first.", frappe.ValidationError
+		)
+	if status != "Processing":
+		frappe.throw(f"This case is {status}; its steps can no longer be changed.", frappe.ValidationError)
+
+
+def _clear_step_dates(step, event):
+	"""Back to the earlier status: the dates and names the undone move wrote leave the step and are
+	kept on the Reversal line. What the officer entered (reference numbers, amounts) stays."""
+	was = []
+	if step.status in ("Complete", "Issued", "Stamped", "Rejected"):
+		was.append(f"{step.status} by {step.completed_by or '-'} on {step.date_completed or '-'}")
+		step.flags.undone_completed_by = step.completed_by
+		step.date_completed = None
+		step.completed_by = None
+	if step.status == "Rejected":
+		was.append(f"remark: {step.rejection_remark}")
+		step.rejection_remark = None
+	if event.from_status == "Pending":
+		step.date_started = None
+	if not event.name:
+		was.append("moved before step history was kept")
+	return "; ".join(was) or None
+
+
+def _reopen_step_work(step, event):
+	"""The fee the step's completion recorded is voided (finishing it again records it again),
+	and the step is somebody's task again. A fee for a forfeited Injaz attempt stays: that money
+	was spent whatever happens to the step."""
+	from agency_tracking.clearance_api import _renotify_reopened_step
+
+	forfeited = {a.name for a in (step.get("injaz_attempts") or []) if a.outcome == "Forfeited"}
+	fees = frappe.get_all(
+		"Applicant Transaction", {"clearance_step": step.name, "status": "Approved"}, ["name", "injaz_attempt"]
+	)
+	names = [f.name for f in fees if f.injaz_attempt not in forfeited]
+	if names:
+		_void_rows({"name": ["in", names]}, f"this step's move to {event.to_status}")
+	_renotify_reopened_step(step, step.flags.get("undone_completed_by"))
+
+
+def _step_undo(effect=None):
+	return Undo(set(), check=_case_still_in_processing, prepare=_clear_step_dates, effect=effect, may=_may_act_on_step)
+
+
+UNDO[("Clearance Step", "Pending", "In Progress")] = _step_undo()
+for _before in ("Pending", "In Progress"):
+	UNDO[("Clearance Step", _before, "Submitted")] = _step_undo()
+	for _done in ("Complete", "Issued"):
+		UNDO[("Clearance Step", _before, _done)] = _step_undo(_reopen_step_work)
+for _outcome in ("Stamped", "Rejected"):
+	UNDO[("Clearance Step", "Submitted", _outcome)] = _step_undo(_reopen_step_work)
+
+
 # --- What the screens ask -------------------------------------------------------------------
 
 
@@ -638,11 +740,11 @@ def get_undoable_step(doctype=None, name=None, **kwargs):
 	doc = frappe.get_doc(doctype, name)
 	if not doc.has_permission("read") and not (doctype == "Placement" and _own_agency_placement(doc)):
 		return nothing
-	event = latest_forward_event(doctype, name)
+	event = latest_forward_event(doctype, name) or _move_without_history(doc)
 	if doctype == "Placement" and not event and doc.status == "Selected":
 		return {**nothing, "available": _may_unselect(doc), "from_status": "Selected", "to_status": "Cancelled"}
 	rule = UNDO.get((doctype, event.from_status, event.to_status)) if event else None
-	if not rule or event.to_status != doc.status or not _may_undo(rule):
+	if not rule or event.to_status != doc.status or not _may_undo(rule, doc):
 		return nothing
 	to_status = {"Applicant Transaction": {"Approved": "Voided"}}.get(doctype, {}).get(doc.status, event.from_status)
 	if doctype == "Applicant Transaction" and doc.status in ("Rejected", "Voided"):
