@@ -9858,6 +9858,147 @@
           }
         }
       }
+    },
+    "/api/method/agency_tracking.reversal.reverse_last_step": {
+      "post": {
+        "tags": [
+          "Undo"
+        ],
+        "summary": "Undo the latest move of one record",
+        "description": "doctype: Applicant, Placement, Complaint or Applicant Transaction. Undoes the newest move that has not been undone yet, together with what it caused; one step at a time. A placement still at Selected is unselected. reason is optional and recorded. Returns {doctype, name, status}. 403 when the caller is not the role responsible for that move (or Manager / Admin); 417 with a message saying what to do first when the undo is refused.",
+        "x-roles": [
+          "The role responsible for the move",
+          "Manager",
+          "Admin"
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded",
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "doctype",
+            "in": "formData",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "name",
+            "in": "formData",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "reason",
+            "in": "formData",
+            "type": "string",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "object",
+                  "properties": {
+                    "doctype": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted (role/permission check failed)"
+          },
+          "417": {
+            "description": "Validation error (business rule violated)"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/api/method/agency_tracking.reversal.get_undoable_step": {
+      "post": {
+        "tags": [
+          "Undo"
+        ],
+        "summary": "What \"Undo last step\" would do on this record for the caller",
+        "description": "Read-only. Returns {available, from_status, to_status, blocked}. available: there is a step to undo and the caller may undo it. blocked: the message saying what to do first, when the undo would be refused right now. Show the button only when available is true; show blocked as the reason it is disabled.",
+        "x-roles": [
+          "Any signed-in user"
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded",
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "doctype",
+            "in": "formData",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "name",
+            "in": "formData",
+            "type": "string",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "object",
+                  "properties": {
+                    "available": {
+                      "type": "boolean"
+                    },
+                    "from_status": {
+                      "type": "string"
+                    },
+                    "to_status": {
+                      "type": "string"
+                    },
+                    "blocked": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted (role/permission check failed)"
+          },
+          "417": {
+            "description": "Validation error (business rule violated)"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
     }
   },
   "definitions": {

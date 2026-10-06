@@ -599,3 +599,40 @@ for _before in ("Registered", "CV Generated"):
 	UNDO[("Applicant", _before, "Cancelled")] = Undo(APPLICANT_ROLES, apply=_undo_cancel)
 for _target in ("Draft", "Registered"):
 	UNDO[("Applicant", "Cancelled", _target)] = Undo(APPLICANT_ROLES, check=_nothing_on_this_cycle, prepare=_step_back_a_cycle)
+
+
+# --- What the screens ask -------------------------------------------------------------------
+
+
+@frappe.whitelist()
+def get_undoable_step(doctype=None, name=None, **kwargs):
+	"""What "Undo last step" would do on this record for the caller, without doing it:
+	{"available", "from_status", "to_status", "blocked"}.
+
+	available -- there is a step to undo and the caller may undo it.
+	from_status / to_status -- where the record is and where the undo would put it.
+	blocked -- when the undo is refused right now: the message that says what to do first."""
+	name = name or kwargs.get("docname")
+	nothing = {"available": False, "from_status": None, "to_status": None, "blocked": None}
+	if not doctype or not name or doctype not in _doctypes() or not frappe.db.exists(doctype, name):
+		return nothing
+	doc = frappe.get_doc(doctype, name)
+	if not doc.has_permission("read") and not (doctype == "Placement" and _own_agency_placement(doc)):
+		return nothing
+	event = latest_forward_event(doctype, name)
+	if doctype == "Placement" and not event and doc.status == "Selected":
+		return {**nothing, "available": _may_unselect(doc), "from_status": "Selected", "to_status": "Cancelled"}
+	rule = UNDO.get((doctype, event.from_status, event.to_status)) if event else None
+	if not rule or event.to_status != doc.status or not _may_undo(rule):
+		return nothing
+	to_status = {"Applicant Transaction": {"Approved": "Voided"}}.get(doctype, {}).get(doc.status, event.from_status)
+	if doctype == "Applicant Transaction" and doc.status in ("Rejected", "Voided"):
+		to_status = doc.status  # the row stays; the amount is entered again as Pending
+	blocked = None
+	if rule.check:
+		try:
+			rule.check(doc, event)
+		except frappe.ValidationError as exc:
+			frappe.clear_last_message()
+			blocked = str(exc)
+	return {"available": True, "from_status": doc.status, "to_status": to_status, "blocked": blocked}
