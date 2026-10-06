@@ -245,7 +245,7 @@ def _name_people(rows, by_placement=False):
 def _get_latest_cv_record(applicant_name):
 	return frappe.db.get_value(
 		"CV Record",
-		{"applicant": applicant_name, "docstatus": 1},
+		{"applicant": applicant_name, "docstatus": 1, "superseded": 0},  # superseded: its CV step was undone
 		"name",
 		order_by="creation desc",
 	)

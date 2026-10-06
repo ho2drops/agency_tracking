@@ -18,7 +18,7 @@ from frappe.utils import get_datetime, getdate, today
 from agency_tracking.db_errors import reraise_if_db_abort
 
 
-def log_action(reference_doctype, reference_name, remarks, event_type="Action", actor=None):
+def log_action(reference_doctype, reference_name, remarks, event_type="Action", actor=None, from_status=None, to_status=None):
 	"""Append a Process Event for a non-transition action (write-off, Injaz payment, contractor
 	edit, PDF download, ...) so the audit trail answers "who did what, when" for actions that don't
 	go through transition(). event_type is "Action" for a state-affecting op or "Access" for a
@@ -30,6 +30,10 @@ def log_action(reference_doctype, reference_name, remarks, event_type="Action", 
 				"reference_doctype": reference_doctype,
 				"reference_name": reference_name,
 				"event_type": event_type,
+				# Only for an action that moved a status outside transition() (a step cancelled
+				# with its case): kept so that move can be undone exactly.
+				"from_status": from_status,
+				"to_status": to_status,
 				"actor": actor or frappe.session.user,
 				"remarks": remarks,
 			}

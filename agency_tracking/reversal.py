@@ -476,3 +476,126 @@ def _unselect(placement, reason):
 	close_open_todos("Placement", placement.name)
 	if frappe.db.get_value("Applicant", placement.applicant, "active_placement") == placement.name:
 		frappe.db.set_value("Applicant", placement.applicant, "active_placement", None)
+
+
+# --- Applicant -------------------------------------------------------------------------------
+# Draft -> Registered and Registered -> CV Generated are undone by the Registrar (and, for the
+# CV, the CV role). A cancel is undone by the Registrar too (REV-4) and brings the case back with
+# it. A restart is undone back to Cancelled. A track change (-> Draft) is not undone here: the
+# event does not keep the old track, and putting only the status back would leave the two at odds.
+
+from agency_tracking.roles import CV  # noqa: E402
+
+APPLICANT_ROLES = {REGISTRAR}
+
+
+def _not_selected(applicant, event):
+	if applicant.active_placement:
+		frappe.throw(
+			"This applicant has been selected by an agency. Undo the selection first.", frappe.ValidationError
+		)
+
+
+def _supersede_cv(applicant, event):
+	"""The CV record of the undone step is kept, marked superseded. Generating again makes a new one."""
+	record = frappe.db.get_value(
+		"CV Record", {"applicant": applicant.name, "docstatus": 1, "superseded": 0}, "name", order_by="creation desc"
+	)
+	if record:
+		frappe.db.set_value("CV Record", record, "superseded", 1)
+
+
+def _nothing_on_this_cycle(applicant, event):
+	for doctype, what in (("Placement", "a selection"), ("CV Record", "a CV")):
+		filters = {"applicant": applicant.name, "cycle_number": applicant.cycle_number}
+		if doctype == "CV Record":
+			filters["superseded"] = 0
+		else:
+			filters["status"] = ["!=", "Cancelled"]
+		if frappe.db.exists(doctype, filters):
+			frappe.throw(f"The restarted applicant already has {what}. Undo that first.", frappe.ValidationError)
+
+
+def _step_back_a_cycle(applicant, event):
+	if (applicant.cycle_number or 1) > 1:
+		applicant.cycle_number = applicant.cycle_number - 1
+		return f"cycle number back to {applicant.cycle_number}"
+
+
+def _placement_cancelled_with(applicant, event):
+	"""The placement the cancel cascade closed together with this applicant, with the event of
+	that closing, or (None, None). Same cycle only; a placement closed by an unselect has no such
+	event and is never picked."""
+	for name in frappe.get_all(
+		"Placement",
+		{"applicant": applicant.name, "status": "Cancelled", "cycle_number": applicant.cycle_number},
+		pluck="name",
+		order_by="modified desc",
+	):
+		closing = latest_forward_event("Placement", name)
+		if closing and closing.to_status == "Cancelled" and closing.creation <= event.creation:
+			return frappe.get_doc("Placement", name), closing
+	return None, None
+
+
+def _status_before_the_cascade(step_name):
+	"""A step's status before it was cancelled with its case, or None when its latest history
+	line is something else (e.g. it was cancelled by an undone move to Processing)."""
+	import re
+
+	from agency_tracking.applicant_api import STEP_CANCELLED_WITH_CASE
+
+	last = frappe.get_all(
+		"Process Event",
+		{"reference_doctype": "Clearance Step", "reference_name": step_name},
+		["from_status", "remarks"],
+		order_by="creation desc, name desc",
+		limit=1,
+	)
+	if not last or not (last[0].remarks or "").startswith(STEP_CANCELLED_WITH_CASE):
+		return None
+	if last[0].from_status:
+		return last[0].from_status
+	match = re.search(r"\(was ([^)]+)\)", last[0].remarks)  # cancels recorded before from_status was kept
+	return match.group(1) if match else None
+
+
+def _undo_cancel(applicant, event, reason):
+	"""REV-4: the applicant goes back to where it was, and the case closed with it comes back as
+	it was: the placement at its stage, every step at its status, tasks open again."""
+	from agency_tracking.clearance_engine import _notify_step_officers, notify_departure_due, notify_ticketing_due
+	from agency_tracking.state_machine import CLEARANCE_STEP_DONE_STATUSES, log_action
+
+	placement, closing = _placement_cancelled_with(applicant, event)
+	note = "cancel undone"
+	# The applicant first: a placement only saves while its applicant is at the right stage.
+	applicant.status = event.from_status
+	if placement:
+		applicant.active_placement = placement.name
+		note = "cancel undone: the case came back with it"
+	applicant.save(ignore_permissions=True)
+	if placement:
+		placement.status = closing.from_status
+		placement.save(ignore_permissions=True)
+		_write_reversal_event(placement, closing, "Cancelled", closing.from_status, reason, "restored with its applicant")
+		for step in frappe.get_all("Clearance Step", {"placement": placement.name, "status": "Cancelled"}, pluck="name"):
+			before = _status_before_the_cascade(step)
+			if not before:
+				continue
+			frappe.db.set_value("Clearance Step", step, "status", before)
+			log_action("Clearance Step", step, f"Restored with the case (back to {before})", from_status="Cancelled", to_status=before)
+			if before not in CLEARANCE_STEP_DONE_STATUSES:
+				_notify_step_officers(frappe.get_doc("Clearance Step", step))
+		if placement.status == "Stamped":
+			notify_ticketing_due(placement)
+		elif placement.status == "Ticketed":
+			notify_departure_due(placement)
+	return "Cancelled", event.from_status, note
+
+
+UNDO[("Applicant", "Draft", "Registered")] = Undo(APPLICANT_ROLES, check=_not_selected)
+UNDO[("Applicant", "Registered", "CV Generated")] = Undo(APPLICANT_ROLES | {CV}, check=_not_selected, effect=_supersede_cv)
+for _before in ("Registered", "CV Generated"):
+	UNDO[("Applicant", _before, "Cancelled")] = Undo(APPLICANT_ROLES, apply=_undo_cancel)
+for _target in ("Draft", "Registered"):
+	UNDO[("Applicant", "Cancelled", _target)] = Undo(APPLICANT_ROLES, check=_nothing_on_this_cycle, prepare=_step_back_a_cycle)
