@@ -101,8 +101,12 @@ def _write_reversal_event(doc, event, from_status, to_status, reason, note):
 
 
 @frappe.whitelist()
-def reverse_last_step(doctype=None, name=None, reason=None, **kwargs):
-	"""Undo the latest move of one record. Returns {"doctype", "name", "status"}."""
+def reverse_last_step(doctype=None, name=None, reason=None, from_status=None, **kwargs):
+	"""Undo the latest move of one record. Returns {"doctype", "name", "status"}.
+
+	from_status -- the status the screen showed when Undo was pressed (get_undoable_step gives
+	it). When given and the record is no longer there, nothing is undone: a second press, or a
+	press on a screen that is out of date, must not take back a different step."""
 	# Someone who can undo nothing at all is refused before anything else is looked at.
 	if frappe.session.user != "Administrator" and not (_all_undo_roles() & set(frappe.get_roles())):
 		# ... except an agency, which may undo its own selection (checked against the placement below).
@@ -120,12 +124,13 @@ def reverse_last_step(doctype=None, name=None, reason=None, **kwargs):
 	doc = frappe.get_doc(doctype, name)
 	event = latest_forward_event(doctype, name)
 	if doctype == "Placement" and not event and doc.status == "Selected":
-		return _run_unselect(doc, reason)
+		return _run_unselect(doc, reason, from_status)
 	rule = UNDO.get((doctype, event.from_status, event.to_status)) if event else None
 	# Permission before anything about the record's state is revealed.
 	if not _may_undo(rule or Undo(roles=_roles_for(doctype))):
 		who = ", ".join(sorted((rule.roles if rule else _roles_for(doctype)))) or "the responsible role"
 		frappe.throw(f"Only {who} or a Manager can undo this step.", frappe.PermissionError)
+	_still_where_the_screen_saw_it(doc, from_status)
 	if not event:
 		frappe.throw("Nothing to undo: this record has not moved yet.", frappe.ValidationError)
 	if event.to_status != doc.status:
@@ -160,14 +165,24 @@ def reverse_last_step(doctype=None, name=None, reason=None, **kwargs):
 	return {"doctype": doc.doctype, "name": doc.name, "status": frappe.db.get_value(doc.doctype, doc.name, "status")}
 
 
+def _still_where_the_screen_saw_it(doc, from_status):
+	if not from_status:
+		return
+	# A locking read: the committed status, whatever this request read before it took the lock.
+	now = frappe.db.get_value(doc.doctype, doc.name, "status", for_update=True)
+	if from_status not in (now, doc.status) or now != doc.status:
+		frappe.throw("This record has changed since the page was loaded. Reload and try again.", frappe.ValidationError)
+
+
 def _all_undo_roles():
 	"""Every role that may undo anything."""
 	return OVERSIGHT_ROLES.union({CONTRACT_PARSER, REGISTRAR}, *(rule.roles for rule in UNDO.values()))
 
 
-def _run_unselect(placement, reason):
+def _run_unselect(placement, reason, from_status=None):
 	if not _may_unselect(placement):
 		frappe.throw("Only the agency that selected this candidate or a Manager can undo the selection.", frappe.PermissionError)
+	_still_where_the_screen_saw_it(placement, from_status)
 	save_point = f"sp_{frappe.generate_hash(length=10)}"
 	with sanctioned_write():
 		frappe.db.savepoint(save_point)
@@ -356,6 +371,9 @@ def _undo_processing(placement, event):
 def _undo_stamped(placement, event):
 	from agency_tracking.clearance_engine import _close_placement_todos
 
+	# A ticket can be recorded while the case is still at Stamped. It does not stay behind on a
+	# case that is back in Processing: same treatment as REV-6 (details cleared, cost voided).
+	_void_rows({"placement": placement.name, "fee_type": ["like", "Ticket%"]}, "the move to Stamped")
 	_close_placement_todos(placement.name)  # "Book ticket ..."
 
 
@@ -364,7 +382,8 @@ TICKET_FIELDS = ("ticket_number", "flight_date", "ticket_cost", "is_rescheduled"
 
 def _clear_ticket(placement, event):
 	"""REV-6: undoing Ticketed takes the ticket with it. The details leave the placement and are
-	kept on the Reversal event; the cost is voided in _undo_ticketed."""
+	kept on the Reversal event; the cost is voided in _undo_ticketed. The same happens to a
+	ticket recorded at Stamped when Stamped is undone (_undo_stamped)."""
 	was = ", ".join(f"{f}: {placement.get(f)}" for f in TICKET_FIELDS if placement.get(f))
 	for field in TICKET_FIELDS:
 		if placement.meta.has_field(field):
@@ -427,7 +446,7 @@ def _undo_departed(placement, event):
 
 
 UNDO[("Placement", "Selected", "Processing")] = Undo(set(), check=_no_wakala_paid, effect=_undo_processing)
-UNDO[("Placement", "Processing", "Stamped")] = Undo(CLEARANCE_ROLES, effect=_undo_stamped)
+UNDO[("Placement", "Processing", "Stamped")] = Undo(CLEARANCE_ROLES, prepare=_clear_ticket, effect=_undo_stamped)
 UNDO[("Placement", "Stamped", "Ticketed")] = Undo({TICKETER}, prepare=_clear_ticket, effect=_undo_ticketed)
 UNDO[("Placement", "Ticketed", "Departed")] = Undo(
 	{TICKETER}, check=_departure_can_be_undone, prepare=_clear_departure, effect=_undo_departed

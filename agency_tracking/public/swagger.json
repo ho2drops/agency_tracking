@@ -9865,7 +9865,7 @@
           "Undo"
         ],
         "summary": "Undo the latest move of one record",
-        "description": "doctype: Applicant, Placement, Complaint or Applicant Transaction. Undoes the newest move that has not been undone yet, together with what it caused; one step at a time. A placement still at Selected is unselected. reason is optional and recorded. Returns {doctype, name, status}. 403 when the caller is not the role responsible for that move (or Manager / Admin); 417 with a message saying what to do first when the undo is refused.",
+        "description": "doctype: Applicant, Placement, Complaint or Applicant Transaction. Undoes the newest move that has not been undone yet, together with what it caused; one step at a time. A placement still at Selected is unselected. reason is optional and recorded. from_status: the status the screen showed (from get_undoable_step); always send it, so a second press or an out-of-date screen is refused (417, \"Reload and try again\") instead of undoing a different step. Returns {doctype, name, status}. 403 when the caller is not the role responsible for that move (or Manager / Admin); 417 with a message saying what to do first when the undo is refused.",
         "x-roles": [
           "The role responsible for the move",
           "Manager",
@@ -9890,6 +9890,12 @@
           },
           {
             "name": "reason",
+            "in": "formData",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "from_status",
             "in": "formData",
             "type": "string",
             "required": false
