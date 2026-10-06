@@ -216,6 +216,9 @@ def _step_filters(step_type, status, include_closed, search):
 	filters = {"step_type": step_type}
 	if status:
 		filters["status"] = ["in", frappe.parse_json(status)] if str(status).startswith("[") else status
+	elif not cint(include_closed):
+		# A cancelled step on a live case is history (its move to Processing was undone), not work.
+		filters["status"] = ["!=", "Cancelled"]
 	placement_filter = {}
 	if not cint(include_closed):
 		placement_filter["status"] = ["not in", ["Departed", "Cancelled"]]

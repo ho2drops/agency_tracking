@@ -149,7 +149,9 @@ def get_placement_officers(placement_name=None, **kwargs):
 		frappe.throw("placement_name is required.", frappe.ValidationError)
 	if not frappe.has_permission("Placement", "read", doc=placement_name):
 		frappe.throw("Not permitted.", frappe.PermissionError)
-	steps = frappe.get_all("Clearance Step", filters={"placement": placement_name}, fields=["step_type", "name"])
+	steps = frappe.get_all(
+		"Clearance Step", filters={"placement": placement_name, "status": ["!=", "Cancelled"]}, fields=["step_type", "name"]
+	)
 
 	# Batch-fetch open ToDos for every step, then every allocated user's full_name, in 2 queries
 	# total instead of a query-per-step plus a query-per-ToDo (was a nested N+1).

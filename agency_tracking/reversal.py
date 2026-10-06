@@ -105,7 +105,9 @@ def reverse_last_step(doctype=None, name=None, reason=None, **kwargs):
 	"""Undo the latest move of one record. Returns {"doctype", "name", "status"}."""
 	# Someone who can undo nothing at all is refused before anything else is looked at.
 	if frappe.session.user != "Administrator" and not (_all_undo_roles() & set(frappe.get_roles())):
-		frappe.throw("Not permitted.", frappe.PermissionError)
+		# ... except an agency, which may undo its own selection (checked against the placement below).
+		if not (doctype == "Placement" and frappe.db.exists("Contractor", {"user": frappe.session.user})):
+			frappe.throw("Not permitted.", frappe.PermissionError)
 	name = name or kwargs.get("docname")
 	if not doctype or not name:
 		frappe.throw("doctype and name are required.", frappe.ValidationError)
@@ -117,6 +119,8 @@ def reverse_last_step(doctype=None, name=None, reason=None, **kwargs):
 	lock_doc_row(doctype, name)  # two undos, or an undo and a forward move, go one after the other
 	doc = frappe.get_doc(doctype, name)
 	event = latest_forward_event(doctype, name)
+	if doctype == "Placement" and not event and doc.status == "Selected":
+		return _run_unselect(doc, reason)
 	rule = UNDO.get((doctype, event.from_status, event.to_status)) if event else None
 	# Permission before anything about the record's state is revealed.
 	if not _may_undo(rule or Undo(roles=_roles_for(doctype))):
@@ -158,7 +162,22 @@ def reverse_last_step(doctype=None, name=None, reason=None, **kwargs):
 
 def _all_undo_roles():
 	"""Every role that may undo anything."""
-	return OVERSIGHT_ROLES.union(*(rule.roles for rule in UNDO.values()))
+	return OVERSIGHT_ROLES.union({CONTRACT_PARSER, REGISTRAR}, *(rule.roles for rule in UNDO.values()))
+
+
+def _run_unselect(placement, reason):
+	if not _may_unselect(placement):
+		frappe.throw("Only the agency that selected this candidate or a Manager can undo the selection.", frappe.PermissionError)
+	save_point = f"sp_{frappe.generate_hash(length=10)}"
+	with sanctioned_write():
+		frappe.db.savepoint(save_point)
+		try:
+			_unselect(placement, reason)
+		except Exception as exc:
+			reraise_if_db_abort(exc)
+			frappe.db.rollback(save_point=save_point)
+			raise
+	return {"doctype": "Placement", "name": placement.name, "status": "Cancelled"}
 
 
 def _roles_for(doctype):
@@ -265,3 +284,195 @@ def _undo_void(txn, event, reason):
 UNDO[("Applicant Transaction", "Pending", "Approved")] = Undo(LEDGER_ROLES, check=_not_on_an_invoice, apply=_undo_approval)
 UNDO[("Applicant Transaction", "Pending", "Rejected")] = Undo(LEDGER_ROLES, apply=_undo_rejection)
 UNDO[("Applicant Transaction", "Approved", "Voided")] = Undo(LEDGER_ROLES, check=_not_a_write_off, apply=_undo_void)
+
+
+# --- Shared: taking money off the books ------------------------------------------------------
+
+
+def _void_rows(filters, why):
+	"""Void every Approved ledger row matching `filters`, each with a system note and its own
+	"Voided" event. Nothing is edited or deleted. Returns the voided names."""
+	names = frappe.get_all("Applicant Transaction", filters={**filters, "status": "Approved"}, pluck="name")
+	for name in names:
+		txn = frappe.get_doc("Applicant Transaction", name)
+		txn.status = "Voided"
+		txn.system_note = f"Voided by the undo of {why}."
+		txn.save(ignore_permissions=True)
+		frappe.get_doc(
+			{
+				"doctype": "Process Event",
+				"reference_doctype": "Applicant Transaction",
+				"reference_name": name,
+				"event_type": "Voided",
+				"from_status": "Approved",
+				"to_status": "Voided",
+				"actor": frappe.session.user,
+				"remarks": f"Voided by the undo of {why}.",
+			}
+		).insert(ignore_permissions=True)
+	return names
+
+
+# --- Placement -------------------------------------------------------------------------------
+# Selected -> Processing is undone by Manager / Admin (they assign the case). Processing ->
+# Stamped by the clearance roles. Stamped -> Ticketed and Ticketed -> Departed by the Ticketer
+# (REV-3). A selection itself is undone by "unselect", further down.
+
+from agency_tracking.roles import CLEARANCE_COUNTRY_ROLES, CLEARANCE_OFFICER, CONTRACT_PARSER, REGISTRAR, TICKETER  # noqa: E402
+
+CLEARANCE_ROLES = CLEARANCE_COUNTRY_ROLES | {CLEARANCE_OFFICER}
+
+
+def _live_steps(placement_name):
+	return frappe.get_all(
+		"Clearance Step", {"placement": placement_name, "status": ["!=", "Cancelled"]}, ["name", "status", "wakala_status"]
+	)
+
+
+def _no_wakala_paid(placement, event):
+	if any(step.wakala_status == "Paid" for step in _live_steps(placement.name)):
+		frappe.throw(
+			"A Wakala has already been paid on this case, so the move to Processing cannot be undone.",
+			frappe.ValidationError,
+		)
+
+
+def _undo_processing(placement, event):
+	"""The steps created for Processing are cancelled (kept as history), their tasks closed and
+	any fee already recorded on them voided. Moving to Processing again creates fresh steps."""
+	from agency_tracking.clearance_engine import close_open_todos
+	from agency_tracking.state_machine import log_action
+
+	steps = _live_steps(placement.name)
+	names = [step.name for step in steps]
+	for step in steps:
+		frappe.db.set_value("Clearance Step", step.name, "status", "Cancelled")
+		log_action("Clearance Step", step.name, f"Cancelled by the undo of the move to Processing (was {step.status})")
+	close_open_todos("Clearance Step", names)
+	if names:
+		_void_rows({"clearance_step": ["in", names]}, "the move to Processing")
+
+
+def _undo_stamped(placement, event):
+	from agency_tracking.clearance_engine import _close_placement_todos
+
+	_close_placement_todos(placement.name)  # "Book ticket ..."
+
+
+TICKET_FIELDS = ("ticket_number", "flight_date", "ticket_cost", "is_rescheduled", "reschedule_date", "reschedule_cause", "reschedule_cost")
+
+
+def _clear_ticket(placement, event):
+	"""REV-6: undoing Ticketed takes the ticket with it. The details leave the placement and are
+	kept on the Reversal event; the cost is voided in _undo_ticketed."""
+	was = ", ".join(f"{f}: {placement.get(f)}" for f in TICKET_FIELDS if placement.get(f))
+	for field in TICKET_FIELDS:
+		if placement.meta.has_field(field):
+			placement.set(field, None)
+	placement.corridor_fees_logged = 0  # so booking again records a new cost
+	return f"ticket undone ({was})" if was else None
+
+
+def _undo_ticketed(placement, event):
+	from agency_tracking.clearance_engine import _close_placement_todos, notify_ticketing_due
+
+	_void_rows({"placement": placement.name, "fee_type": ["like", "Ticket%"]}, "the move to Ticketed")
+	_close_placement_todos(placement.name)  # "Confirm departure ..."
+	notify_ticketing_due(placement)  # "Book ticket ..." is open again
+
+
+def _commission_rows(placement_name):
+	return frappe.get_all(
+		"Applicant Transaction",
+		{"placement": placement_name, "transaction_type": "Commission", "status": "Approved"},
+		pluck="name",
+	)
+
+
+def _departure_can_be_undone(placement, event):
+	if frappe.db.exists("Complaint", {"placement": placement.name}):
+		frappe.throw(
+			"A complaint has been filed about this placement, so its departure cannot be undone.",
+			frappe.ValidationError,
+		)
+	items = frappe.get_all(
+		"Commission Batch Item",
+		{"transaction": ["in", _commission_rows(placement.name) or [""]], "status": ["in", ["Pending", "Paid"]]},
+		pluck="status",
+	)
+	if "Paid" in items:
+		frappe.throw(
+			"The commission for this placement is already paid. Unmark the payment first.", frappe.ValidationError
+		)
+	if items:
+		frappe.throw(
+			"The commission for this placement is on an invoice. Release it from the invoice first.",
+			frappe.ValidationError,
+		)
+
+
+def _clear_departure(placement, event):
+	was = placement.departed_on
+	placement.departed_on = None
+	return f"departure undone (was recorded {was})" if was else None
+
+
+def _undo_departed(placement, event):
+	from agency_tracking.clearance_engine import notify_departure_due
+
+	_void_rows({"placement": placement.name, "transaction_type": "Commission"}, "the departure")
+	# Closes whatever is open on the placement (a "no commission" task for Finance included) and
+	# opens "Confirm departure ..." again.
+	notify_departure_due(placement)
+
+
+UNDO[("Placement", "Selected", "Processing")] = Undo(set(), check=_no_wakala_paid, effect=_undo_processing)
+UNDO[("Placement", "Processing", "Stamped")] = Undo(CLEARANCE_ROLES, effect=_undo_stamped)
+UNDO[("Placement", "Stamped", "Ticketed")] = Undo({TICKETER}, prepare=_clear_ticket, effect=_undo_ticketed)
+UNDO[("Placement", "Ticketed", "Departed")] = Undo(
+	{TICKETER}, check=_departure_can_be_undone, prepare=_clear_departure, effect=_undo_departed
+)
+
+
+# --- Unselect (REV-2) ------------------------------------------------------------------------
+# Selecting a candidate is not a move: it creates the placement at Selected, so there is no
+# event to undo. While the placement is still at Selected (never moved on, or moved back), the
+# selection itself can be undone: the placement is closed and the candidate is free again. The
+# applicant is not cancelled, unlike Cancel Applicant.
+
+
+def _own_agency_placement(placement):
+	contractor = frappe.db.get_value("Contractor", {"user": frappe.session.user}, "name")
+	return bool(contractor) and contractor == placement.contractor
+
+
+def _may_unselect(placement):
+	roles = set(frappe.get_roles())
+	if frappe.session.user == "Administrator" or OVERSIGHT_ROLES & roles:
+		return True
+	if _own_agency_placement(placement):
+		return True
+	track = frappe.db.get_value("Applicant", placement.applicant, "entry_track")
+	return track == "Muayena" and bool({CONTRACT_PARSER, REGISTRAR} & roles)
+
+
+def _unselect(placement, reason):
+	from agency_tracking.clearance_engine import close_open_todos
+
+	placement.status = "Cancelled"
+	placement.save(ignore_permissions=True)
+	frappe.get_doc(
+		{
+			"doctype": "Process Event",
+			"reference_doctype": "Placement",
+			"reference_name": placement.name,
+			"event_type": "Reversal",
+			"from_status": "Selected",
+			"to_status": "Cancelled",
+			"actor": frappe.session.user,
+			"remarks": " | ".join(part for part in (reason, "selection undone: the candidate is available again") if part),
+		}
+	).insert(ignore_permissions=True)
+	close_open_todos("Placement", placement.name)
+	if frappe.db.get_value("Applicant", placement.applicant, "active_placement") == placement.name:
+		frappe.db.set_value("Applicant", placement.applicant, "active_placement", None)

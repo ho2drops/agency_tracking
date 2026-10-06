@@ -159,7 +159,7 @@ def get_lmis_officer(placement):
 	outcome, not freeze on the first save)."""
 	lmis_step, completed_by = frappe.db.get_value(
 		"Clearance Step",
-		{"placement": placement.name, "step_type": ["like", f"{LMIS_STEP_TYPE_PREFIX}%"]},
+		{"placement": placement.name, "step_type": ["like", f"{LMIS_STEP_TYPE_PREFIX}%"], "status": ["!=", "Cancelled"]},
 		["name", "completed_by"],
 		order_by="sequence_order asc",
 	) or (None, None)

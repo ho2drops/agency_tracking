@@ -193,6 +193,8 @@ def _load_actionable_step(clearance_step_name, expected_types=None):
 			f"{step.placement} is already {placement_status}; its clearance steps can no longer be edited.",
 			frappe.ValidationError,
 		)
+	if step.status == "Cancelled":
+		frappe.throw("This clearance step was cancelled and can no longer be edited.", frappe.ValidationError)
 	return step
 
 
@@ -591,7 +593,7 @@ def record_other_payment(
 def list_my_clearance_steps(placement=None):
 	"""A Clearance Officer / Ticketer's queue, optionally filtered by placement."""
 	require_list_permission("Clearance Step")
-	filters = {}
+	filters = {"status": ["!=", "Cancelled"]}  # cancelled steps are history, not anyone's queue
 	if placement:
 		filters["placement"] = placement
 	steps = frappe.get_list(

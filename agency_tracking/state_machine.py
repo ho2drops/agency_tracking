@@ -502,9 +502,10 @@ def all_mandatory_clearance_steps_complete(placement):
 	corridor step with no Clearance Step row blocks too (QA P4-04)."""
 	from agency_tracking.corridor_engine import get_corridor_steps
 
+	# Cancelled steps are dead rows (an undone move to Processing leaves them as history).
 	steps = frappe.get_all(
 		"Clearance Step",
-		filters={"placement": placement.name},
+		filters={"placement": placement.name, "status": ["!=", "Cancelled"]},
 		fields=["step_type", "status", "is_mandatory"],
 	)
 	mandatory = [s for s in steps if s.is_mandatory]
