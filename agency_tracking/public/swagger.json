@@ -1630,6 +1630,69 @@
         ]
       }
     },
+    "/api/method/agency_tracking.chat_api.get_thread_participants": {
+      "post": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Participants of a thread and when each last read it",
+        "description": "Same access rule as get_thread_messages: a participant; Admin, Manager or System Manager for any thread; a Communication Manager for any agency thread. Use it for read receipts and the participant list; do not read the Chat Thread record directly.",
+        "x-roles": [
+          "Thread participant",
+          "Admin",
+          "Manager",
+          "Communication Manager (agency threads)"
+        ],
+        "consumes": [
+          "application/x-www-form-urlencoded",
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "thread_name",
+            "in": "formData",
+            "type": "string",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "user": {
+                        "type": "string"
+                      },
+                      "last_read_at": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted (role/permission check failed)"
+          },
+          "417": {
+            "description": "Validation error (business rule violated)"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/api/method/agency_tracking.chat_api.list_threads": {
       "post": {
         "tags": [
